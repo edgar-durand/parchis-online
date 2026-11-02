@@ -412,6 +412,10 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
     if (myLegal.some((m) => m.use === u)) useOptions.push(u);
   });
   const choosing = useOptions.length > 1;
+  // A die was spent: forget the old choice so the next tap uses what is left.
+  useEffect(() => {
+    setUseSel(null);
+  }, [dl.a, dl.b]);
   const activeUse: DieUse | null = useSel && useOptions.includes(useSel) ? useSel : useOptions[0] ?? null;
   const boardLegal = choosing && activeUse ? myLegal.filter((m) => m.use === activeUse) : myLegal;
   const useLabel = (u: DieUse): string =>

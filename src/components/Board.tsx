@@ -536,10 +536,14 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
   const reduceRef = useRef(false);
   const burstId = useRef(1);
   const lockRef = useRef(0);
+  // Always the latest handler: a pawn keeps the press it was first given (it is memoized), and
+  // the screen's handler changes with every roll and die choice — a stale one sent a spent die.
+  const onPieceRef = useRef(onPiece);
+  onPieceRef.current = onPiece;
   const press = useCallback((idx: number) => {
     if (Date.now() < lockRef.current) return;
-    onPiece(idx);
-  }, [onPiece]);
+    onPieceRef.current(idx);
+  }, []);
 
   // Speech bubbles (one per piece at most) and the capture clip.
   const [talks, setTalks] = useState<Record<string, Talk>>({});
