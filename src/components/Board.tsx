@@ -8,8 +8,8 @@ import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
 import CaptureClip, { CLIP_MS } from './CaptureClip';
-import { EMOTE_LINE, TalkBubble, lineFor, speakLine } from './PirateTalk';
-import type { Talk, TalkKind } from './PirateTalk';
+import { TalkBubble, emoteLine, lineFor, speakLine } from './PirateTalk';
+import type { Line as VoiceLine, Talk, TalkKind } from './PirateTalk';
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
@@ -545,11 +545,11 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
   const [talks, setTalks] = useState<Record<string, Talk>>({});
   const talkId = useRef(1);
   const talkTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const say = useCallback((key: string, color: Color, text: string, loud: boolean, delay = 0) => {
+  const say = useCallback((key: string, color: Color, line: VoiceLine, loud: boolean, delay = 0) => {
     const show = () => {
       const id = talkId.current++;
-      setTalks((t) => ({ ...t, [key]: { id, key, color, text, loud } }));
-      speakLine(text, color, loud);
+      setTalks((t) => ({ ...t, [key]: { id, key, color, text: line.text, loud } }));
+      speakLine(line, loud);
       if (talkTimers.current[key]) clearTimeout(talkTimers.current[key]);
       talkTimers.current[key] = setTimeout(() => {
         setTalks((t) => {
@@ -621,7 +621,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
     if (seenEmote.current === -1) { seenEmote.current = top; return; }
     state.emotes
       .filter((e) => e.id > seenEmote.current)
-      .forEach((e) => say(voiceOf(e.color), e.color, EMOTE_LINE[e.emote], true));
+      .forEach((e) => say(voiceOf(e.color), e.color, emoteLine(e.emote, e.color), true));
     seenEmote.current = top;
   }, [state.emotes, say, voiceOf]);
 

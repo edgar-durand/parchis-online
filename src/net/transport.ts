@@ -26,7 +26,12 @@ interface KV {
   remove(key: string): Promise<void>;
 }
 
-interface StateRecord { state: GameState; applied: number; updatedAt: number }
+interface StateRecord { state: GameState; applied: number; updatedAt: number; out?: Record<string, number> }
+// One outbox per player: only that player ever writes it, so no device can overwrite another's
+// actions or heartbeats (the shared inbox lost them when two phones wrote at once). `beat` moves
+// on every heartbeat; `items` keeps the player's recent actions with increasing `seq`.
+interface Outbox { beat: number; seq: number; items: InboxItem[] }
+const OUTBOX_LIMIT = 40;
 interface InboxItem { seq: number; action: Action; at: number }
 interface Inbox { next: number; items: InboxItem[] }
 
@@ -37,6 +42,7 @@ const INBOX_LIMIT = 120;
 
 const stateKey = (code: string) => `${PREFIX}${code}:state`;
 const inboxKey = (code: string) => `${PREFIX}${code}:inbox`;
+const outKey = (code: string, playerId: string) => `${PREFIX}${code}:out:${playerId}`;
 const norm = (code: string): string => normalizeCode(code);
 
 function randomCode(): string {
@@ -67,6 +73,44 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
   // Subscribers' "run a tick now" hooks, so local changes show up without waiting a full poll.
   const wakers = new Map<string, Set<() => void>>();
   const wake = (code: string) => { wakers.get(code)?.forEach((fn) => fn()); };
+  // This device's own outbox per room (it is its only writer).
+  const mine = new Map<string, { playerId: string; box: Outbox }>();
+  // Host: the last outbox seq applied per player, and the last heartbeat seen, per room.
+  const outCursors = new Map<string, Record<string, number>>();
+  const beats = new Map<string, Record<string, number>>();
+
+  async function readOutbox(code: string, playerId: string): Promise<Outbox | null> {
+    const raw = await kv.get(outKey(code, playerId));
+    if (!raw) return null;
+    try {
+      const box = JSON.parse(raw) as Outbox;
+      if (box && typeof box.seq === 'number' && Array.isArray(box.items)) return box;
+    } catch {
+      // not an outbox yet
+    }
+    return null;
+  }
+
+  async function writeOutbox(code: string, playerId: string, action: Action | null): Promise<void> {
+    await enqueue(async () => {
+      let entry = mine.get(code);
+      if (!entry || entry.playerId !== playerId) {
+        // a reload: continue after what the outbox already holds, never reuse a seq
+        const prev = await readOutbox(code, playerId).catch(() => null);
+        entry = { playerId, box: { beat: 0, seq: prev ? prev.seq : 0, items: prev ? prev.items : [] } };
+        mine.set(code, entry);
+      }
+      const box = entry.box;
+      const at = Date.now();
+      box.beat = at;
+      if (action) {
+        box.seq += 1;
+        box.items = [...box.items, { seq: box.seq, action, at }].slice(-OUTBOX_LIMIT);
+      }
+      await kv.set(outKey(code, playerId), JSON.stringify(box));
+    });
+    wake(code);
+  }
 
   async function readRecord(code: string): Promise<StateRecord | null> {
     const raw = await kv.get(stateKey(code));
@@ -94,7 +138,7 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
   }
 
   async function writeRecord(code: string, state: GameState, applied: number): Promise<void> {
-    const rec: StateRecord = { state, applied, updatedAt: Date.now() };
+    const rec: StateRecord = { state, applied, updatedAt: Date.now(), out: outCursors.get(code) ?? {} };
     await kv.set(stateKey(code), JSON.stringify(rec));
   }
 
@@ -211,7 +255,14 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
     },
 
     async send(rawCode: string, action: Action): Promise<void> {
-      await appendAction(norm(rawCode), action);
+      const code = norm(rawCode);
+      const pid = 'playerId' in action ? action.playerId : null;
+      // A join comes before the player has a seat, so it rides the shared inbox; a bot has no outbox.
+      if (!remote || action.type === 'join' || !pid || pid.startsWith('bot:')) {
+        await appendAction(code, action);
+        return;
+      }
+      await writeOutbox(code, pid, action.type === 'heartbeat' ? null : action);
     },
 
     async publish(rawCode: string, state: GameState): Promise<void> {
@@ -227,7 +278,7 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
       wake(code);
     },
 
-    subscribe(rawCode, onState, onActions, onStatus): () => void {
+    subscribe(rawCode, onState, onActions, onStatus, isHost): () => void {
       const code = norm(rawCode);
       let stopped = false;
       let running = false;
@@ -258,8 +309,14 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
         if (running) { again = true; return; }
         running = true;
         try {
+          const host = !isHost || isHost();
           const rec = await readRecord(code);
-          const box = await readInbox(code);
+          // only the host reduces actions: guests never read the boxes
+          const box = host ? await readInbox(code) : { next: 0, items: [] };
+          const players = host && remote && rec
+            ? rec.state.seats.filter((x) => x.playerId && !x.isBot).map((x) => x.playerId as string)
+            : [];
+          const outs = await Promise.all(players.map((pid) => readOutbox(code, pid).catch(() => null)));
           if (stopped) return;
           failures = 0;
           firstFailureAt = 0;
@@ -273,12 +330,35 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
             }
           }
           const cursor = cursors.get(code);
-          if (cursor !== undefined) {
+          const incoming: Action[] = [];
+          if (host && cursor !== undefined) {
             const start = Math.min(cursor, box.next);
             const fresh = box.items.filter((it) => it.seq >= start).sort((a, b) => a.seq - b.seq);
             cursors.set(code, box.next);
-            if (fresh.length > 0) onActions(fresh.map((it) => it.action));
+            fresh.forEach((it) => incoming.push(it.action));
           }
+          if (players.length > 0) {
+            const applied = outCursors.get(code) ?? { ...(rec?.out ?? {}) };
+            const seen = beats.get(code) ?? {};
+            players.forEach((pid, i) => {
+              const out = outs[i];
+              if (!out) return;
+              const from = applied[pid] ?? 0;
+              out.items
+                .filter((it) => it.seq > from)
+                .sort((a, b) => a.seq - b.seq)
+                .forEach((it) => incoming.push(it.action));
+              applied[pid] = Math.max(from, out.seq);
+              // a moved heartbeat = the player is here (the host's clock decides how long ago)
+              if (out.beat !== seen[pid]) {
+                seen[pid] = out.beat;
+                incoming.push({ type: 'heartbeat', playerId: pid });
+              }
+            });
+            outCursors.set(code, applied);
+            beats.set(code, seen);
+          }
+          if (incoming.length > 0) onActions(incoming);
         } catch {
           // Single reads/writes are already retried silently; only repeated failures show a banner.
           if (failures === 0) firstFailureAt = Date.now();

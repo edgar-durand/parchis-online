@@ -77,7 +77,8 @@ export interface RoomTransport {
   join(code: string, player: PlayerInfo): Promise<{ state?: GameState; error?: JoinError }>;
   send(code: string, action: Action): Promise<void>;
   publish(code: string, state: GameState): Promise<void>;
-  subscribe(code: string, onState: (s: GameState) => void, onActions: (a: Action[]) => void, onStatus: (c: ConnectionStatus) => void): () => void;
+  // isHost: only the host reads the players' outboxes (each guest writes its own, never a shared box)
+  subscribe(code: string, onState: (s: GameState) => void, onActions: (a: Action[]) => void, onStatus: (c: ConnectionStatus) => void, isHost?: () => boolean): () => void;
   close(code: string): Promise<void>;
 }
 

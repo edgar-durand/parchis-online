@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import {
   Action,
   CHARACTERS,
@@ -27,8 +28,9 @@ import { makeRoomCode, normalizeCode } from '../net/links';
 const SESSION_KEY = 'parchis:session';
 const HISTORY_KEY = 'parchis:history';
 const SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const HEARTBEAT_MS = 4000;
-const DISCONNECT_AFTER_MS = 12000;
+const HEARTBEAT_MS = 3000;
+// a phone that switches app for a moment, or a slow network, is not "gone"
+const DISCONNECT_AFTER_MS = 25000;
 const EMOTE_COOLDOWN_MS = 3000;
 const PENDING_TIMEOUT_MS = 5000;
 const HISTORY_LIMIT = 20;
@@ -401,8 +403,9 @@ export function useGame(profile: Profile): GameStore {
       },
       (actions) => handleActions(actions),
       (st) => setStatus(st),
+      amHost,
     );
-  }, [adopt, clearPending, handleActions]);
+  }, [adopt, clearPending, handleActions, amHost]);
 
   // Make sure the host is seated and ready.
   const ensureHost = useCallback((s: GameState, id: string, name: string): GameState => {
@@ -694,7 +697,36 @@ export function useGame(profile: Profile): GameStore {
     };
     beat();
     const h = setInterval(beat, HEARTBEAT_MS);
-    return () => clearInterval(h);
+    // back from another app or tab: say we are here at once, not on the next tick
+    const back = () => beat();
+    const env = globalThis as unknown as {
+      addEventListener?: (n: string, f: () => void) => void;
+      removeEventListener?: (n: string, f: () => void) => void;
+      document?: { visibilityState?: string; addEventListener?: (n: string, f: () => void) => void; removeEventListener?: (n: string, f: () => void) => void };
+    };
+    const onVis = () => {
+      if (!env.document || env.document.visibilityState === 'visible') beat();
+    };
+    let sub: { remove: () => void } | null = null;
+    try {
+      env.addEventListener?.('focus', back);
+      env.addEventListener?.('online', back);
+      env.document?.addEventListener?.('visibilitychange', onVis);
+      sub = AppState.addEventListener('change', (st) => { if (st === 'active') beat(); });
+    } catch {
+      sub = null;
+    }
+    return () => {
+      clearInterval(h);
+      try {
+        env.removeEventListener?.('focus', back);
+        env.removeEventListener?.('online', back);
+        env.document?.removeEventListener?.('visibilitychange', onVis);
+        sub?.remove();
+      } catch {
+        // ignore
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.roomCode, isHost, practice, pid]);
 

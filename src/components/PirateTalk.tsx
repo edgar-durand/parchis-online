@@ -1,7 +1,7 @@
 // Speech bubbles over the pieces: random pirate slang when a character feels like it, and
 // reactions to what happens on the board (setting sail, a capture, reaching the lighthouse).
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,106 +11,112 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { Color, EmoteId } from '../types';
-import * as Speech from 'expo-speech';
+import { File, Paths } from 'expo-file-system';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { VOICE_CLIPS, VOICE_TEXT } from '../voices';
 import { hues } from '../art';
 
-export type TalkKind = 'chatter' | 'exit' | 'goal' | 'brag' | 'ouch' | 'gasp' | 'turn';
+export type TalkKind = 'chatter' | 'exit' | 'goal' | 'brag' | 'ouch' | 'turn';
+type Kind = TalkKind | EmoteId;
 
-const COMMON = [
-  '¡Arrr!',
-  '¡Al abordaje!',
-  '¡Por mil barriles de ron!',
-  '¡Que me aspen!',
-  '¡Viento en popa!',
-  '¡Rayos y centellas!',
-  '¡A toda vela!',
-  '¡Izad las velas!',
-  '¡Tierra a la vista!',
-  '¡Rumbo al faro, grumetes!',
-  '¡Ni un doblón para ti!',
-  '¡Esta tripulación no se rinde!',
-  '¡Huelo a tesoro!',
-  '¡Arriad el foque!',
-  '¡Por las barbas de Neptuno!',
-];
-
-const FLAVOR: Record<Color, string[]> = {
-  red: ['¡Seré el rey de este tablero!', '¡Tengo hambre… de fichas!', '¡Jajaja, qué divertido!', '¡Nadie deja atrás a su tripulación!'],
-  yellow: ['¡Esta jugada está para chuparse los dedos!', '¡Te serviré de entrante!', '¡Una patada y al agua!', 'Mmm, ¿huele a pescado frito?'],
-  green: ['Tres espadas, cero piedad.', '¿Hacia dónde quedaba el faro?', 'Hmph. Aburrido.', 'Despiértame cuando me toque.'],
-  blue: ['¡El mar está de mi lado!', 'Paciencia, como la marea.', '¡Ola gigante en camino!', 'Un buen pirata no corre: navega.'],
-};
-
-const LINES: Record<Exclude<TalkKind, 'chatter'>, string[]> = {
-  exit: ['¡Zarpamos!', '¡Leven anclas!', '¡A la mar!', '¡Soltad amarras!'],
-  goal: ['¡Tesoro asegurado!', '¡Llegué al faro!', '¡Esto huele a oro!', '¡A salvo en puerto!'],
-  brag: ['¡A la tabla, marinero!', '¡Al fondo del mar contigo!', '¡Toma ya, grumete!', '¡Abordado!', '¡Fuera de mi barco!'],
-  ouch: ['¡Me las pagarás!', '¡Rayos! ¡Otra vez al nido!', '¡Volveré, bribón!', '¡Esto no queda así!'],
-  gasp: ['¡Uuuh!', '¡Eso dolió!', '¡Cuidado, que muerde!', '¡Qué abordaje!'],
-  turn: ['¡Mi turno!', '¡Dadme esos dados!', '¡Ahora verás!', '¡Allá voy!'],
-};
-
-export const EMOTE_LINE: Record<EmoteId, string> = {
-  gomu: '¡Gomu!',
-  laugh: '¡Jajaja!',
-  cry: '¡Buaaa!',
-  nakama: '¡Nakama!',
-  king: '¡Seré el rey!',
-  gg: '¡Buena partida!',
-};
+export type Line = { text: string; clip: string };
 
 function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-export function lineFor(kind: TalkKind, color: Color): string {
-  if (kind === 'chatter') return Math.random() < 0.45 ? pick(FLAVOR[color]) : pick(COMMON);
-  return pick(LINES[kind]);
+/** A random line of this kind in this character's own words, with its acted clip. */
+export function lineFor(kind: TalkKind, color: Color): Line {
+  const list = VOICE_TEXT[color][kind] as readonly string[];
+  const i = Math.floor(Math.random() * list.length);
+  return { text: list[i], clip: `${color}:${kind}${i}` };
 }
 
-// Each character's voice: the pitch and pace the phone's speech voice reads their lines with.
-const VOICE: Record<Color, { pitch: number; rate: number }> = {
-  red: { pitch: 1.35, rate: 1.08 },
-  yellow: { pitch: 1.0, rate: 0.98 },
-  green: { pitch: 0.72, rate: 0.9 },
-  blue: { pitch: 0.6, rate: 0.85 },
-};
+/** What a character shouts for an emote. */
+export function emoteLine(emote: EmoteId, color: Color): Line {
+  return { text: VOICE_TEXT[color][emote], clip: `${color}:${emote}` };
+}
 
 let speaking = false;
 let lastSpoke = 0;
+let current: { stop(): void } | null = null;
+const files = new Map<string, string>();
+let modeSet = false;
 
 function soundOn(): boolean {
   const g = globalThis as { REMIX_SOUND_ON?: boolean; REMIX_SFX_MUTED?: boolean };
   return g.REMIX_SOUND_ON !== false && g.REMIX_SFX_MUTED !== true;
 }
 
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function decode(b64: string): Uint8Array {
+  const clean = b64.replace(/=+$/, '');
+  const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let o = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const n =
+      (B64.indexOf(clean[i]) << 18) |
+      (B64.indexOf(clean[i + 1]) << 12) |
+      ((B64.indexOf(clean[i + 2] ?? 'A') & 63) << 6) |
+      (B64.indexOf(clean[i + 3] ?? 'A') & 63);
+    out[o++] = (n >> 16) & 255;
+    if (i + 2 < clean.length) out[o++] = (n >> 8) & 255;
+    if (i + 3 < clean.length) out[o++] = n & 255;
+  }
+  return out.subarray(0, o);
+}
+
+function playClip(key: string, loud: boolean, done: () => void): boolean {
+  const data = VOICE_CLIPS[key];
+  if (!data) return false;
+  if (Platform.OS === 'web') {
+    const Ctor = (globalThis as { Audio?: new (src: string) => { play(): Promise<void>; pause(): void; volume: number; onended: (() => void) | null } }).Audio;
+    if (!Ctor) return false;
+    const a = new Ctor(`data:audio/mp4;base64,${data}`);
+    a.volume = loud ? 1 : 0.85;
+    a.onended = done;
+    void a.play().catch(done);
+    current = { stop: () => { a.pause(); done(); } };
+    return true;
+  }
+  if (!modeSet) {
+    modeSet = true;
+    void Promise.resolve(setAudioModeAsync({ playsInSilentMode: true })).catch(() => undefined);
+  }
+  let uri = files.get(key);
+  if (!uri) {
+    const f = new File(Paths.cache, `voice-${key.replace(':', '-')}.m4a`);
+    f.write(decode(data));
+    uri = f.uri;
+    files.set(key, uri);
+  }
+  const player = createAudioPlayer({ uri });
+  player.volume = loud ? 1 : 0.85;
+  player.play();
+  const release = () => {
+    try { player.remove(); } catch { /* released */ }
+    done();
+  };
+  const t = setTimeout(release, 5000);
+  current = { stop: () => { clearTimeout(t); release(); } };
+  return true;
+}
+
 /**
- * Says a line out loud in the character's voice. A loud line (a capture, an emote, the
+ * Says a line out loud with the character's acted voice. A loud line (a capture, an emote, the
  * lighthouse) cuts in; idle chatter waits its turn and never piles up. Never throws.
  */
-export function speakLine(text: string, color: Color, loud: boolean): void {
+export function speakLine(line: Line, loud: boolean): void {
   if (!soundOn()) return;
   const now = Date.now();
-  if (!loud && (speaking || now - lastSpoke < 3500)) return;
+  if (!loud && (speaking || now - lastSpoke < 3000)) return;
   try {
-    if (loud && speaking) Speech.stop();
+    if (loud && speaking) current?.stop();
     speaking = true;
     lastSpoke = now;
-    const v = VOICE[color];
-    const done = () => {
-      speaking = false;
-    };
-    Speech.speak(text.replace(/[¡!¿?…]/g, (c) => (c === '…' ? '...' : c)), {
-      language: 'es-ES',
-      pitch: v.pitch,
-      rate: v.rate,
-      volume: loud ? 1 : 0.85,
-      onDone: done,
-      onStopped: done,
-      onError: done,
-    });
-    // a voice that never reports back must not silence the crew for good
-    setTimeout(done, 4500);
+    const done = () => { speaking = false; };
+    if (!playClip(line.clip, loud, done)) speaking = false;
+    setTimeout(done, 5000);
   } catch {
     speaking = false;
   }
