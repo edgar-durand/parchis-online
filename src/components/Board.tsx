@@ -322,23 +322,12 @@ const PIER = '#8B5E34';
 const PIER_LIGHT = '#B2824F';
 const LAMP = '#FFE08A';
 
-const COBBLE_TONES = ['#B79A66', '#A88A57', '#C2A573'];
-
 const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
   const { size, d } = geo;
   const cw = d * 0.9;
   const rx = d * 0.14;
   const startAbs: Record<number, Color> = {};
   COLORS.forEach((c) => { startAbs[START_SQUARE[c]] = c; });
-
-  const cobbles: React.ReactNode[] = [];
-  for (let k = 0; k < 150; k++) {
-    const a = Math.sin(k * 12.9898) * 43758.5453;
-    const b = Math.sin(k * 78.233) * 12345.6789;
-    const x = size * (0.04 + 0.92 * (a - Math.floor(a)));
-    const y = size * (0.04 + 0.92 * (b - Math.floor(b)));
-    cobbles.push(<Rect key={k} x={x - d * 0.24} y={y - d * 0.16} width={d * 0.48} height={d * 0.32} rx={d * 0.1} fill={COBBLE_TONES[k % 3]} fillOpacity={0.5} stroke={wood.dark} strokeOpacity={0.22} strokeWidth={0.7} />);
-  }
 
   const u = cw;
   const sw = Math.max(1.2, u * 0.07);
@@ -357,11 +346,7 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
 
   return (
     <G>
-      {/* The board is the town square of an island (the island art is drawn under it): a paved
-          plaza with a low stone kerb on the sand, no wooden frame and no painted sea. */}
-      <Rect x={size * 0.03} y={size * 0.034} width={size * 0.952} height={size * 0.952} rx={size * 0.06} fill="rgba(40,24,8,0.28)" />
-      <Rect x={size * 0.024} y={size * 0.024} width={size * 0.952} height={size * 0.952} rx={size * 0.06} fill="url(#bdSand)" stroke="#8A7350" strokeOpacity={0.75} strokeWidth={Math.max(2, size * 0.006)} />
-      {cobbles}
+      {/* no plaza drawn: the squares, houses and lighthouse stand on the island's own sand */}
 
       {COLORS.map((c) => {
         const n = geo.nests[c];

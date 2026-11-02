@@ -12,7 +12,6 @@ import Dice from '../components/Dice';
 import CharacterEmblem from '../components/CharacterEmblem';
 import EmoteBar from '../components/EmoteBar';
 import SeaBackdrop from '../components/SeaBackdrop';
-import { SeaAmbience } from '../components/Ambience';
 import { Button, Chip, ConnectionBanner, IconButton, Toast, useTheme } from '../components/ui';
 
 const BUBBLE_MS = 3000;
@@ -520,7 +519,6 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
   return (
     <SeaBackdrop>
-      <SeaAmbience />
       <View style={styles.root}>
         <ConnectionBanner status={status} />
         {isDesktop ? (

@@ -172,8 +172,9 @@ export default function CaptureClip({
   const linesStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -lines.value * S * 0.5 }] }));
   const bannerStyle = useAnimatedStyle(() => ({ opacity: banner.value, transform: [{ translateY: (1 - banner.value) * 30 }, { scale: 0.7 + banner.value * 0.3 }] }));
 
-  const fighter = S * 0.26;
-  const hero = S * 0.46;
+  // a Pawn of size n stands about 2n tall above its feet
+  const fighter = S * 0.24;
+  const hero = S * 0.3;
   const attName = CHARACTERS[attacker].name;
   const vicName = CHARACTERS[victim].name;
   const titleSize = Math.max(22, S * 0.075);
@@ -222,7 +223,7 @@ export default function CaptureClip({
             <Animated.View style={[styles.title, titleStyle]}>
               <Text style={[styles.titleText, { fontSize: titleSize, fontFamily: fonts.display }]}>¡ABORDAJE!</Text>
             </Animated.View>
-            <View style={[styles.stageRow, { top: S * 0.42 }]}>
+            <View style={[styles.stageRow, { top: S * 0.8 }]}>
               <Animated.View style={[styles.fighter, attStyle]}>
                 <Pawn color={attacker} x={0} y={0} size={fighter} movable={false} dimmed={false} pose={attackerPose} still />
               </Animated.View>
@@ -231,7 +232,7 @@ export default function CaptureClip({
               </Animated.View>
             </View>
             {shout ? (
-              <Animated.View key={shout.n} style={[styles.shout, { top: S * 0.22 }, starStyle]}>
+              <Animated.View key={shout.n} style={[styles.shout, { top: S * 0.2 }, starStyle]}>
                 <Svg width={S * 0.42} height={S * 0.32}>
                   <Polygon points={starPoints(S * 0.21, S * 0.16, S * 0.16, S * 0.09, 11)} fill="#FFE27A" stroke="#3A2A12" strokeWidth={3} strokeLinejoin="round" />
                   <Polygon points={starPoints(S * 0.21, S * 0.16, S * 0.11, S * 0.06, 11)} fill="#FFFFFF" opacity={0.65} />
@@ -265,7 +266,7 @@ export default function CaptureClip({
                 })}
               </Svg>
             </Animated.View>
-            <Animated.View style={[styles.hero, { top: S * 0.5 }, closeStyle]}>
+            <Animated.View style={[styles.hero, { top: S * 0.93 }, closeStyle]}>
               <Pawn color={attacker} x={0} y={0} size={hero} movable={false} dimmed={false} pose={heroPose} />
             </Animated.View>
             <Animated.View style={[styles.banner, { top: S * 0.08 }, bannerStyle]}>
@@ -287,7 +288,7 @@ export default function CaptureClip({
 const styles = StyleSheet.create({
   root: { overflow: 'hidden', zIndex: 50 },
   center: { position: 'absolute' },
-  title: { position: 'absolute', top: '10%', left: 0, right: 0, alignItems: 'center' },
+  title: { position: 'absolute', top: '4%', left: 0, right: 0, alignItems: 'center', zIndex: 3 },
   titleText: {
     color: '#FFE27A',
     fontWeight: '900',

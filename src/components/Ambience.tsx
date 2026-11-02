@@ -190,6 +190,66 @@ function Crosser({ id, S, visit, y, w, ms, flap, say }: { id: 'newscoo' | 'karoo
   );
 }
 
+// The island art reaches ISLAND × the board; its water ring is the outer band of that square.
+const RING = 0.15;
+
+function CoastShip({ S }: { S: number }) {
+  const w = S * 0.13;
+  const h = w / AMBIENT_AR.ship;
+  const x = useSharedValue(0);
+  const bob = useSharedValue(0);
+  useEffect(() => {
+    // sails right to left along the water south of the island, then again
+    x.value = withRepeat(withTiming(1, { duration: 60000, easing: Easing.linear }), -1);
+    bob.value = withRepeat(withTiming(1, { duration: 2400, easing: Easing.inOut(Easing.sin) }), -1, true);
+    return () => { cancelAnimation(x); cancelAnimation(bob); };
+  }, [x, bob]);
+  const st = useAnimatedStyle(() => ({
+    opacity: Math.min(1, x.value * 12, (1 - x.value) * 12),
+    transform: [
+      { translateX: S * (1 + RING * 0.6) - x.value * (S * (1 + RING * 1.2) + w) },
+      { translateY: bob.value * S * 0.004 },
+      { rotate: `${-2 + bob.value * 4}deg` },
+    ],
+  }));
+  // the hull's waterline sits in the turquoise band under the beach
+  return (
+    <Animated.View style={[styles.abs, { left: 0, top: S * 1.07 - h * 0.92 }, st]}>
+      <Art id="ship" width={w} />
+    </Animated.View>
+  );
+}
+
+function CoastRiser({ id, S, visit }: { id: 'laboon' | 'seaking'; S: number; visit: number }) {
+  const w = S * (id === 'laboon' ? 0.2 : 0.11);
+  const h = w / AMBIENT_AR[id];
+  const rise = useSharedValue(0);
+  const [spot, setSpot] = useState({ x: 0, y: 0, flip: false });
+  useEffect(() => {
+    if (visit === 0) return;
+    // the water below the island, left or right of the middle dock
+    const left = Math.random() < 0.5;
+    setSpot({ x: left ? S * rand(0.05, 0.3) : S * rand(0.62, 0.95) - w, y: S * 1.08, flip: !left });
+    rise.value = withSequence(
+      withTiming(1, { duration: 1400, easing: Easing.out(Easing.back(1.2)) }),
+      withDelay(id === 'laboon' ? 2600 : 2000, withTiming(0, { duration: 1500, easing: Easing.in(Easing.quad) })),
+    );
+  }, [visit, rise, S, w, id]);
+  const st = useAnimatedStyle(() => ({
+    opacity: Math.min(1, rise.value * 2),
+    transform: [{ translateY: (1 - rise.value) * h }],
+  }));
+  if (visit === 0) return null;
+  // clipped at the waterline: it rises out of the sea, never out of the sand
+  return (
+    <View style={[styles.abs, { left: spot.x, top: spot.y - h, width: w, height: h, overflow: 'hidden' }]}>
+      <Animated.View style={st}>
+        <Art id={id} width={w} flip={spot.flip} />
+      </Animated.View>
+    </View>
+  );
+}
+
 /**
  * On the board: Jolly Rogers waving over the four houses, a News Coo flying over, a Den Den Mushi
  * crawling along an edge and Karoo running past. `nests` are the four house rectangles.
@@ -201,8 +261,18 @@ export function BoardAmbience({ S, nests }: { S: number; nests: { x: number; y: 
   const duck = useVisits(!reduced, [30000, 50000], [45000, 80000]);
   const [ys] = useState(() => ({ coo: rand(0.08, 0.3), snail: rand(0.82, 0.88), duck: rand(0.4, 0.55) }));
   const flagW = S * 0.1;
+  const laboon = useVisits(!reduced, [7000, 15000], [28000, 48000]);
+  const seaking = useVisits(!reduced, [18000, 30000], [36000, 62000]);
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {reduced ? null : (
+        <>
+          {/* in the island's water ring, below and beside the coast: never over the land */}
+          <CoastShip S={S} />
+          <CoastRiser id="laboon" S={S} visit={laboon} />
+          <CoastRiser id="seaking" S={S} visit={seaking} />
+        </>
+      )}
       {nests.map((n, i) => (
         <Flag key={i} x={n.x + n.w * 0.72} y={n.y - flagW * 0.62} w={flagW} delay={i * 260} />
       ))}

@@ -155,8 +155,8 @@ export default function GoalClip({
 
         {CONFETTI.map((c, i) => <Confetto key={i} c={c} S={S} />)}
 
-        <Animated.View style={[styles.hero, { top: S * 0.86 }, heroStyle]}>
-          <Pawn color={color} x={0} y={0} size={S * 0.2} movable={false} dimmed={false} pose="cheer" />
+        <Animated.View style={[styles.hero, { top: S * 0.95 }, heroStyle]}>
+          <Pawn color={color} x={0} y={0} size={S * 0.22} movable={false} dimmed={false} pose="cheer" />
         </Animated.View>
 
         <Animated.View style={[styles.banner, { top: S * 0.035 }, bannerStyle]}>
