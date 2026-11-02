@@ -7,6 +7,7 @@ import { elevation } from '../theme';
 import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
+import { BoardAmbience } from './Ambience';
 import CaptureClip, { CLIP_MS } from './CaptureClip';
 import GoalClip, { GOAL_CLIP_MS } from './GoalClip';
 import { TalkBubble, emoteLine, lineFor, speakLine } from './PirateTalk';
@@ -27,7 +28,7 @@ interface Geo {
   pt: (c: Color, prog: number, idx: number) => Point;
 }
 type Over = { x: number; y: number; lift: number; face: number; sx: number; sy: number; rot: number; pose?: 'walk' | 'attack' | 'hit' };
-type Anim = { key: string; pts: Point[]; seg: number; start: number; lift: number; arc: boolean; face?: number; lastI?: number; hold?: number; brawl?: boolean; side?: number };
+type Anim = { key: string; pts: Point[]; seg: number; start: number; lift: number; arc: boolean; face?: number; lastI?: number; hold?: number; brawl?: boolean; side?: number; jump?: boolean };
 type Burst = { id: number; x: number; y: number; color: Color; start: number; dust?: boolean; fight?: boolean; goal?: boolean };
 type BurstView = { id: number; x: number; y: number; color: Color; t: number; dust?: boolean; fight?: boolean; goal?: boolean };
 
@@ -675,7 +676,16 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
       t -= hold;
       const i = Math.min(segs - 1, Math.floor(t / a.seg));
       const f = (t - i * a.seg) / a.seg;
-      const e = segs === 1 ? (a.arc ? 1 - (1 - f) * (1 - f) : f * f * (3 - 2 * f)) : f;
+      // walking eases in on the first square and out on the last, steady in between
+      const e = a.arc
+        ? 1 - (1 - f) * (1 - f)
+        : segs === 1
+          ? f * f * (3 - 2 * f)
+          : i === 0
+            ? f * f
+            : i === segs - 1
+              ? 1 - (1 - f) * (1 - f)
+              : f;
       const p0 = a.pts[i];
       const p1 = a.pts[i + 1];
       const dx = p1.x - p0.x;
@@ -688,8 +698,10 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         a.lastI = i;
       }
       const bounce = Math.sin(Math.PI * f);
-      const sy = a.arc ? 1 + 0.2 * bounce : 1 - 0.14 * Math.cos(2 * Math.PI * f);
-      const rot = a.arc ? f * 540 : (i % 2 ? 1 : -1) * bounce * 9;
+      const hop = a.arc || a.jump;
+      // a step: the body rises a little at mid-stride and sways side to side, no squash
+      const sy = a.arc ? 1 + 0.2 * bounce : hop ? 1 - 0.14 * Math.cos(2 * Math.PI * f) : 1 + 0.015 * bounce;
+      const rot = a.arc ? f * 540 : hop ? (i % 2 ? 1 : -1) * bounce * 9 : (i % 2 ? 1 : -1) * bounce * 2;
       next[a.key] = {
         x: p0.x + dx * e,
         y: p0.y + (p1.y - p0.y) * e,
@@ -759,9 +771,11 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
       else for (let k = o + 1; k <= p; k++) pts.push(geo.pt(c, k, i));
       const steps = pts.length - 1;
       if (steps < 1) return;
-      const seg = o === 0 ? 300 : Math.max(50, Math.min(150, 1400 / steps));
+      // A real walk: about a third of a second per square (faster on a long move, never a blur),
+      // a small step bob — only leaving the nest is a jump.
+      const seg = o === 0 ? 320 : steps <= 6 ? 330 : Math.max(190, 2400 / steps);
       animsRef.current = animsRef.current.filter((a) => a.key !== key);
-      animsRef.current.push({ key, pts, seg, start: now, lift: o === 0 ? geo.d * 0.6 : geo.d * 0.3, arc: false });
+      animsRef.current.push({ key, pts, seg, start: now, lift: o === 0 ? geo.d * 0.6 : geo.d * 0.06, arc: false, jump: o === 0 });
       maxDur = Math.max(maxDur, steps * seg);
       ends.push({ c, i, p });
       if (o === 0) {
@@ -977,6 +991,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
           ),
         )}
       </Svg>
+      <BoardAmbience S={S} nests={COLORS.map((c) => geo.nests[c])} />
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         {[...placed.filter((x) => !x.movable), ...placed.filter((x) => x.movable)].map(({ it, gx, gy, movable, dimmed }) => (
           // Sized to the pawn's own box (never 0×0): iOS and Android only deliver a touch inside

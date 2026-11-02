@@ -25,7 +25,7 @@ let prefetched = false;
 function prefetchArt(): void {
   if (prefetched) return;
   prefetched = true;
-  (['idle', 'walk', 'attack', 'hit', 'cheer'] as ArtPose[]).forEach((pz) =>
+  (['idle', 'walk', 'walk2', 'walk3', 'attack', 'hit', 'cheer'] as ArtPose[]).forEach((pz) =>
     COLORS.forEach((c) => {
       void Image.prefetch(artUrl(c, pz)).catch(() => undefined);
     }),
@@ -233,23 +233,23 @@ function PawnView({
   const run = useSharedValue(0);
   const [blink, setBlink] = useState(false);
   const [artOk, setArtOk] = useState(true);
-  const [stride, setStride] = useState(false);
+  const [stride, setStride] = useState(0);
   const [joy, setJoy] = useState(false);
   useEffect(prefetchArt, []);
-  // A walk is two drawn frames (stride / stand) alternating with the hop.
+  // A walk cycle of four drawn frames: one leg forward, passing, the other leg forward, passing.
   useEffect(() => {
     if (pose !== 'walk' && pose !== 'run') {
-      setStride(false);
+      setStride(0);
       return;
     }
-    const h = setInterval(() => setStride((v) => !v), pose === 'run' ? 120 : 170);
+    const h = setInterval(() => setStride((v) => (v + 1) % 4), pose === 'run' ? 90 : 125);
     return () => clearInterval(h);
   }, [pose]);
   const frame: ArtPose =
     pose === 'attack' || pose === 'hit' || pose === 'cheer'
       ? pose
       : pose === 'walk' || pose === 'run'
-        ? stride ? 'walk' : 'idle'
+        ? (['walk', 'walk2', 'walk3', 'walk2'] as const)[stride]
         : joy ? 'cheer' : 'idle';
   const h = hues[color];
   const emblem = CHARACTERS[color].emblem as Emblem;
