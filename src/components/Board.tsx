@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Image, Platform, StyleSheet, View } from 'react-native';
 import { ambientUrl } from '../art-sprites';
+import type { AmbientId } from '../art-sprites';
 
 // The island art is this much wider than the board: its beach, palms and docks ring the square.
 export const ISLAND = 1.3;
@@ -349,44 +350,16 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
       {/* no plaza drawn: the squares, houses and lighthouse stand on the island's own sand */}
 
       {COLORS.map((c) => {
-        const n = geo.nests[c];
-        const rh = d * 0.75;
-        const lines: React.ReactNode[] = [];
-        for (let y = n.y + rh + d * 0.4; y < n.y + n.h - d * 0.3; y += d * 0.55) {
-          lines.push(<Line key={y} x1={n.x + d * 0.3} y1={y} x2={n.x + n.w - d * 0.3} y2={y} stroke={wood.dark} strokeOpacity={0.22} strokeWidth={1} />);
-        }
+        // the house is an illustrated pirate camp (drawn under the board); here, one woven mat
+        // per crew member where the pieces wait
         return (
           <G key={`nest-${c}`}>
-            <Rect x={n.x + 3} y={n.y + d * 0.5} width={n.w} height={n.h} rx={d * 0.4} fill="rgba(30,14,4,0.38)" />
-            <Rect x={n.x} y={n.y + d * 0.26} width={n.w} height={n.h} rx={d * 0.4} fill={hues[c].shade} stroke={wood.dark} strokeWidth={1.5} />
-            <Rect x={n.x} y={n.y} width={n.w} height={n.h} rx={d * 0.4} fill="url(#bdPlank)" stroke={hues[c].shade} strokeWidth={2.5} />
-            <Rect x={n.x + 2} y={n.y + 2} width={n.w - 4} height={n.h - 4} rx={d * 0.35} fill="none" stroke={hues[c].base} strokeWidth={2} />
-            {lines}
-            <Rect x={n.x + d * 0.25} y={n.y + rh + d * 0.2} width={n.w - d * 0.5} height={n.h - rh - d * 0.45} rx={d * 0.3} fill="rgba(60,30,8,0.45)" />
-            <Rect x={n.x + d * 0.25} y={n.y + rh + d * 0.1} width={n.w - d * 0.5} height={n.h - rh - d * 0.45} rx={d * 0.3} fill={hues[c].tint} fillOpacity={0.45} stroke={hues[c].shade} strokeWidth={1.2} />
-            <Line x1={n.x + d * 0.55} y1={n.y + rh + d * 0.12} x2={n.x + n.w - d * 0.55} y2={n.y + rh + d * 0.12} stroke="rgba(255,255,255,0.6)" strokeWidth={1.5} strokeLinecap="round" />
-            <Rect x={n.x + d * 0.6} y={n.y + rh + d * 0.3} width={n.w - d * 1.2} height={n.h - rh - d * 0.85} rx={d * 0.22} fill={hues[c].base} fillOpacity={0.25} stroke={hues[c].shade} strokeOpacity={0.6} strokeWidth={1} />
-            <Polygon
-              points={`${n.x - d * 0.2},${n.y + rh} ${n.x + d * 0.35},${n.y - d * 0.12} ${n.x + n.w - d * 0.35},${n.y - d * 0.12} ${n.x + n.w + d * 0.2},${n.y + rh}`}
-              fill={`url(#bdC-${c})`}
-              stroke={hues[c].shade}
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-            />
-            <Line x1={n.x + d * 0.1} y1={n.y + rh * 0.38} x2={n.x + n.w - d * 0.1} y2={n.y + rh * 0.38} stroke={hues[c].shade} strokeOpacity={0.55} strokeWidth={1} />
-            <Line x1={n.x + d * 0.0} y1={n.y + rh * 0.72} x2={n.x + n.w - d * 0.0} y2={n.y + rh * 0.72} stroke={hues[c].shade} strokeOpacity={0.55} strokeWidth={1} />
-            <Line x1={n.x + d * 0.35} y1={n.y - d * 0.12} x2={n.x + n.w - d * 0.35} y2={n.y - d * 0.12} stroke={gold.tint} strokeWidth={2} />
-            <Rect x={n.x + n.w * 0.78} y={n.y - d * 0.34} width={d * 0.22} height={d * 0.26} fill={PIER} stroke={hues[c].shade} strokeWidth={1} />
-            <Rect x={n.x + n.w * 0.24} y={n.y + rh * 0.3} width={d * 0.3} height={d * 0.24} rx={d * 0.04} fill={LAMP} stroke={hues[c].shade} strokeWidth={1.2} />
-            <Rect x={n.x + n.w * 0.72} y={n.y + rh * 0.3} width={d * 0.3} height={d * 0.24} rx={d * 0.04} fill={LAMP} stroke={hues[c].shade} strokeWidth={1.2} />
-            <Line x1={n.x + n.w * 0.24 + d * 0.15} y1={n.y + rh * 0.3} x2={n.x + n.w * 0.24 + d * 0.15} y2={n.y + rh * 0.3 + d * 0.24} stroke={hues[c].shade} strokeWidth={0.8} />
-            <Line x1={n.x + n.w * 0.72 + d * 0.15} y1={n.y + rh * 0.3} x2={n.x + n.w * 0.72 + d * 0.15} y2={n.y + rh * 0.3 + d * 0.24} stroke={hues[c].shade} strokeWidth={0.8} />
             {geo.homes[c].map((h, i) => (
               <G key={i}>
-                <Circle cx={h.x} cy={h.y + 1.8} r={d * 0.52} fill="rgba(255,255,255,0.5)" />
-                <Circle cx={h.x} cy={h.y} r={d * 0.5} fill={hues[c].shade} />
-                <Circle cx={h.x} cy={h.y + 1} r={d * 0.4} fill="url(#bdPit)" stroke="rgba(0,0,0,0.5)" strokeWidth={1.2} />
-                <Path d={`M${h.x - d * 0.32} ${h.y + d * 0.1} A${d * 0.34} ${d * 0.34} 0 0 0 ${h.x + d * 0.3} ${h.y + d * 0.2}`} fill="none" stroke={hues[c].tint} strokeOpacity={0.7} strokeWidth={1.2} strokeLinecap="round" />
+                <Ellipse cx={h.x} cy={h.y + d * 0.06} rx={d * 0.56} ry={d * 0.36} fill="rgba(40,22,6,0.35)" />
+                <Ellipse cx={h.x} cy={h.y} rx={d * 0.54} ry={d * 0.34} fill="#C9A46A" stroke={hues[c].shade} strokeWidth={2} />
+                <Ellipse cx={h.x} cy={h.y} rx={d * 0.4} ry={d * 0.24} fill="none" stroke="#9C7A45" strokeWidth={1.2} strokeDasharray={`${d * 0.08} ${d * 0.05}`} />
+                <Ellipse cx={h.x} cy={h.y} rx={d * 0.22} ry={d * 0.12} fill={hues[c].base} fillOpacity={0.55} />
               </G>
             ))}
           </G>
@@ -834,6 +807,19 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         resizeMode="contain"
         style={{ position: 'absolute', width: S * ISLAND, height: S * ISLAND, left: (S - S * ISLAND) / 2, top: (S - S * ISLAND) / 2 }}
       />
+      {COLORS.map((c) => {
+        const n = geo.nests[c];
+        const w = n.w * 1.14;
+        return (
+          <Image
+            key={`camp-${c}`}
+            source={{ uri: ambientUrl(`camp-${c}` as AmbientId) }}
+            fadeDuration={0}
+            resizeMode="stretch"
+            style={{ position: 'absolute', width: w, height: n.h * 1.16, left: n.x + n.w / 2 - w / 2, top: n.y - n.h * 0.12 }}
+          />
+        );
+      })}
       {/* positioned like the island under it: a browser paints a positioned element above an
           unpositioned one, so without this the island covered the whole board on the web */}
       <Svg width={S} height={S} style={{ position: 'absolute', left: 0, top: 0 }}>
