@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Image, Platform, StyleSheet, View } from 'react-native';
+import { ambientUrl } from '../art-sprites';
+
+// The island art is this much wider than the board: its beach, palms and docks ring the square.
+export const ISLAND = 1.3;
 import Svg, { Circle, Defs, Ellipse, G, Line, LinearGradient, Path, Polygon, RadialGradient, Rect, Stop } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { BoardClip, BoardProps, COLORS, Color, GOAL, Point, SAFE_SQUARES, START_SQUARE } from '../types';
-import { elevation } from '../theme';
 import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
@@ -319,37 +322,6 @@ const PIER = '#8B5E34';
 const PIER_LIGHT = '#B2824F';
 const LAMP = '#FFE08A';
 
-const HarbourDecor = React.memo(function HarbourDecor({ size }: { size: number; d: number }) {
-  const c = size / 2;
-  const w = size * 0.07;
-  const l = size * 0.075;
-  const out: React.ReactNode[] = [];
-  for (let s = 0; s < 4; s++) {
-    const planks: React.ReactNode[] = [];
-    for (let k = 1; k < 5; k++) {
-      const y = (l * k) / 5;
-      planks.push(<Line key={k} x1={c - w / 2} y1={y} x2={c + w / 2} y2={y} stroke={wood.dark} strokeOpacity={0.55} strokeWidth={1} />);
-    }
-    out.push(
-      <G key={`side${s}`} rotation={s * 90} origin={`${c}, ${c}`}>
-        <Rect x={c - w / 2} y={0} width={w} height={l} fill={PIER_LIGHT} stroke={PIER} strokeWidth={1.2} />
-        {planks}
-        <Circle cx={c - w / 2} cy={l} r={size * 0.009} fill={PIER} stroke={wood.dark} strokeWidth={0.8} />
-        <Circle cx={c + w / 2} cy={l} r={size * 0.009} fill={PIER} stroke={wood.dark} strokeWidth={0.8} />
-        <Circle cx={c + w / 2} cy={l - size * 0.02} r={size * 0.03} fill="url(#bdGlow)" />
-        <Rect x={c + w / 2 - size * 0.007} y={l - size * 0.03} width={size * 0.014} height={size * 0.02} rx={size * 0.003} fill={LAMP} stroke={wood.dark} strokeWidth={0.8} />
-        <Circle cx={size * 0.25} cy={size * 0.012} r={size * 0.02} fill="url(#bdGlow)" />
-        <Circle cx={size * 0.25} cy={size * 0.012} r={size * 0.007} fill={LAMP} stroke={wood.dark} strokeWidth={0.6} />
-        <Circle cx={size * 0.75} cy={size * 0.012} r={size * 0.02} fill="url(#bdGlow)" />
-        <Circle cx={size * 0.75} cy={size * 0.012} r={size * 0.007} fill={LAMP} stroke={wood.dark} strokeWidth={0.6} />
-      </G>,
-    );
-  }
-  return <G>{out}</G>;
-});
-
-const COBBLE_TONES = ['#B79A66', '#A88A57', '#C2A573'];
-
 const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
   const { size, d } = geo;
   const cw = d * 0.9;
@@ -357,30 +329,6 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
   const startAbs: Record<number, Color> = {};
   COLORS.forEach((c) => { startAbs[START_SQUARE[c]] = c; });
 
-  const waves: React.ReactNode[] = [];
-  for (let i = 0; i < 10; i++) {
-    const t = size * (i + 0.5) / 10;
-    const w = size * 0.04;
-    const e = size * 0.006;
-    waves.push(
-      <Path key={`wt${i}`} d={`M${t} ${e} q${w / 2} ${-e} ${w} 0`} stroke="#fff" strokeOpacity={0.4} strokeWidth={1.2} fill="none" />,
-      <Path key={`wb${i}`} d={`M${t} ${size - e} q${w / 2} ${-e} ${w} 0`} stroke="#fff" strokeOpacity={0.4} strokeWidth={1.2} fill="none" />,
-      <Path key={`wl${i}`} d={`M${e} ${t} q${-e} ${w / 2} 0 ${w}`} stroke="#fff" strokeOpacity={0.4} strokeWidth={1.2} fill="none" />,
-      <Path key={`wr${i}`} d={`M${size - e} ${t} q${e} ${w / 2} 0 ${w}`} stroke="#fff" strokeOpacity={0.4} strokeWidth={1.2} fill="none" />,
-    );
-  }
-  const posts: React.ReactNode[] = [];
-  for (let i = 1; i < 8; i++) {
-    const t = (size * i) / 8;
-    const o = size * 0.014;
-    const r = size * 0.0075;
-    posts.push(
-      <Circle key={`pt${i}`} cx={t} cy={o} r={r} fill="url(#bdStud)" stroke={wood.dark} strokeWidth={0.8} />,
-      <Circle key={`pb${i}`} cx={t} cy={size - o} r={r} fill="url(#bdStud)" stroke={wood.dark} strokeWidth={0.8} />,
-      <Circle key={`pl${i}`} cx={o} cy={t} r={r} fill="url(#bdStud)" stroke={wood.dark} strokeWidth={0.8} />,
-      <Circle key={`pr${i}`} cx={size - o} cy={t} r={r} fill="url(#bdStud)" stroke={wood.dark} strokeWidth={0.8} />,
-    );
-  }
   const cobbles: React.ReactNode[] = [];
   for (let k = 0; k < 150; k++) {
     const a = Math.sin(k * 12.9898) * 43758.5453;
@@ -407,12 +355,10 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
 
   return (
     <G>
-      <Rect x={0} y={0} width={size} height={size} rx={size * 0.03} fill="url(#bdSea)" />
-      {waves}
-      <Rect x={size * 0.014} y={size * 0.014} width={size * 0.972} height={size * 0.972} rx={size * 0.05} fill="none" stroke={wood.dark} strokeWidth={size * 0.02} />
-      <Rect x={size * 0.014} y={size * 0.014} width={size * 0.972} height={size * 0.972} rx={size * 0.05} fill="none" stroke="url(#bdWood)" strokeWidth={size * 0.015} />
-      {posts}
-      <Rect x={size * 0.024} y={size * 0.024} width={size * 0.952} height={size * 0.952} rx={size * 0.04} fill="url(#bdSand)" stroke={wood.dark} strokeOpacity={0.8} strokeWidth={1.5} />
+      {/* The board is the town square of an island (the island art is drawn under it): a paved
+          plaza with a low stone kerb on the sand, no wooden frame and no painted sea. */}
+      <Rect x={size * 0.03} y={size * 0.034} width={size * 0.952} height={size * 0.952} rx={size * 0.06} fill="rgba(40,24,8,0.28)" />
+      <Rect x={size * 0.024} y={size * 0.024} width={size * 0.952} height={size * 0.952} rx={size * 0.06} fill="url(#bdSand)" stroke="#8A7350" strokeOpacity={0.75} strokeWidth={Math.max(2, size * 0.006)} />
       {cobbles}
 
       {COLORS.map((c) => {
@@ -498,7 +444,6 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
           <Polygon key={`t-${c}`} points={geo.tris[c].map((p) => `${p.x},${p.y}`).join(' ')} fill={`url(#bdC-${c})`} stroke={gold.shade} strokeWidth={1} strokeLinejoin="round" />
         ))}
         <Lighthouse cx={geo.goal.cx} cy={geo.goal.cy} d={d} />
-        <HarbourDecor size={size} d={d} />
       </G>
     </G>
   );
@@ -893,9 +838,15 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
 
   return (
     <View
-      style={{ width: S, height: S, borderRadius: S * 0.03, ...elevation, transform: [{ translateX: shk }, { translateY: shk * 0.6 }] }}
+      style={{ width: S, height: S, transform: [{ translateX: shk }, { translateY: shk * 0.6 }] }}
       accessibilityLabel={`Tablero de Parchís pirata. Turno de ${state.turn === 'red' ? 'Luffy' : state.turn === 'yellow' ? 'Sanji' : state.turn === 'green' ? 'Zoro' : 'Jinbe'}`}
     >
+      <Image
+        source={{ uri: ambientUrl('island') }}
+        fadeDuration={0}
+        resizeMode="contain"
+        style={{ position: 'absolute', width: S * ISLAND, height: S * ISLAND, left: (S - S * ISLAND) / 2, top: (S - S * ISLAND) / 2 }}
+      />
       <Svg width={S} height={S}>
         <DefsLayer />
         <StaticBoard geo={geo} />

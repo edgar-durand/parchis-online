@@ -440,9 +440,10 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
   const isDesktop = Platform.OS === 'web' && width >= DESKTOP_MIN_WIDTH;
   const boardSize = isDesktop
-    ? // the board takes the whole height it has (at least half the screen when it fits), the panel the rest
-      Math.max(360, Math.min(height - space[3] * 2, width - PANEL_WIDTH - space[4] * 3))
-    : Math.max(260, Math.min(width, height - RESERVED_HEIGHT));
+    ? // the island (board + its beach ring) takes the whole height it has, the panel the rest
+      Math.max(360, Math.min((height - space[3] * 2) / 1.16, (width - PANEL_WIDTH - space[4] * 3) / 1.14))
+    : // a phone shows a strip of beach either side of the square
+      Math.max(260, Math.min(width * 0.9, height - RESERVED_HEIGHT));
 
   const clipSize = Math.floor(Math.min(width, height) * (isDesktop ? 0.82 : 0.96));
   const turnSeat = seatOf(state.turn);
@@ -524,7 +525,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
         <ConnectionBanner status={status} />
         {isDesktop ? (
           <View style={styles.deskRoot}>
-            <View style={styles.deskInner}>
+            <View style={[styles.deskInner, { gap: Math.round(boardSize * 0.14) }]}>
               <View style={{ width: boardSize, height: boardSize }}>
                 <Board
                   state={state}
@@ -676,7 +677,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
             />
           </View>
 
-          <View style={[styles.chipsRow, { width: boardSize }]}>
+          <View style={[styles.chipsRow, { width: boardSize, zIndex: 2 }]}>
             {renderChip(tl, 'left')}
             {renderChip(tr, 'right')}
           </View>
@@ -693,7 +694,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
             />
           </View>
 
-          <View style={[styles.chipsRow, { width: boardSize }]}>
+          <View style={[styles.chipsRow, { width: boardSize, zIndex: 2 }]}>
             {renderChip(bl, 'left')}
             {renderChip(br, 'right')}
           </View>
