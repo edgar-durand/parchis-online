@@ -322,6 +322,8 @@ const PIER = '#8B5E34';
 const PIER_LIGHT = '#B2824F';
 const LAMP = '#FFE08A';
 
+const COBBLE_TONES = ['#B79A66', '#A88A57', '#C2A573'];
+
 const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
   const { size, d } = geo;
   const cw = d * 0.9;

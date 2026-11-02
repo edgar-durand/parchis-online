@@ -110,7 +110,7 @@ function playClip(key: string, loud: boolean, done: () => void): boolean {
     modeSet = true;
     void Promise.resolve(setAudioModeAsync({ playsInSilentMode: true })).catch(() => undefined);
   }
-  const player = createAudioPlayer({ uri: url });
+  const player = createAudioPlayer({ uri: voiceUrl(key) });
   player.volume = loud ? 1 : 0.85;
   player.play();
   const release = () => {
