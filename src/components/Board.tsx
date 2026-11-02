@@ -7,6 +7,9 @@ import { elevation } from '../theme';
 import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
+import CaptureClip, { CLIP_MS } from './CaptureClip';
+import { EMOTE_LINE, TalkBubble, lineFor, speakLine } from './PirateTalk';
+import type { Talk, TalkKind } from './PirateTalk';
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
@@ -24,8 +27,8 @@ interface Geo {
 }
 type Over = { x: number; y: number; lift: number; face: number; sx: number; sy: number; rot: number };
 type Anim = { key: string; pts: Point[]; seg: number; start: number; lift: number; arc: boolean; face?: number; lastI?: number; hold?: number; brawl?: boolean; side?: number };
-type Burst = { id: number; x: number; y: number; color: Color; start: number; dust?: boolean; fight?: boolean };
-type BurstView = { id: number; x: number; y: number; color: Color; t: number; dust?: boolean; fight?: boolean };
+type Burst = { id: number; x: number; y: number; color: Color; start: number; dust?: boolean; fight?: boolean; goal?: boolean };
+type BurstView = { id: number; x: number; y: number; color: Color; t: number; dust?: boolean; fight?: boolean; goal?: boolean };
 
 const FIGHT_MS = 900;
 
@@ -538,6 +541,98 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
     onPiece(idx);
   }, [onPiece]);
 
+  // Speech bubbles (one per piece at most) and the capture clip.
+  const [talks, setTalks] = useState<Record<string, Talk>>({});
+  const talkId = useRef(1);
+  const talkTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const say = useCallback((key: string, color: Color, text: string, loud: boolean, delay = 0) => {
+    const show = () => {
+      const id = talkId.current++;
+      setTalks((t) => ({ ...t, [key]: { id, key, color, text, loud } }));
+      speakLine(text, color, loud);
+      if (talkTimers.current[key]) clearTimeout(talkTimers.current[key]);
+      talkTimers.current[key] = setTimeout(() => {
+        setTalks((t) => {
+          if (t[key]?.id !== id) return t;
+          const n = { ...t };
+          delete n[key];
+          return n;
+        });
+      }, loud ? 2600 : 2300);
+    };
+    if (delay > 0) setTimeout(show, delay);
+    else show();
+  }, []);
+  const react = useCallback((key: string, color: Color, kind: TalkKind, delay = 0) => {
+    say(key, color, lineFor(kind, color), kind !== 'chatter', delay);
+  }, [say]);
+  useEffect(() => () => {
+    Object.values(talkTimers.current).forEach(clearTimeout);
+  }, []);
+  const [clip, setClip] = useState<{ id: number; attacker: Color; victim: Color } | null>(null);
+  const clipId = useRef(1);
+
+  // Spontaneous chatter: now and then a character on the board says something piratey.
+  const piecesRef = useRef(state.pieces);
+  piecesRef.current = state.pieces;
+  const playing = state.phase === 'rolling' || state.phase === 'moving';
+  useEffect(() => {
+    if (!playing) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = (first: boolean) => {
+      timer = setTimeout(() => {
+        if (!alive) return;
+        const out: { key: string; color: Color }[] = [];
+        const home: { key: string; color: Color }[] = [];
+        COLORS.forEach((c) => piecesRef.current[c].forEach((prog, i) => {
+          if (prog === GOAL) return;
+          (prog > 0 ? out : home).push({ key: `${c}-${i}`, color: c });
+        }));
+        const pool = out.length > 0 && Math.random() < 0.8 ? out : home;
+        if (pool.length > 0) {
+          const who = pool[Math.floor(Math.random() * pool.length)];
+          react(who.key, who.color, 'chatter');
+        }
+        loop(false);
+      }, first ? 2500 + Math.random() * 2500 : 5500 + Math.random() * 6500);
+    };
+    loop(true);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [playing, react]);
+
+  // The piece of a colour that speaks for it: the furthest along, else one in the nest.
+  const voiceOf = useCallback((c: Color): string => {
+    const ps = piecesRef.current[c];
+    let best = -1;
+    ps.forEach((prog, i) => {
+      if (prog < GOAL && (best < 0 || prog > ps[best])) best = i;
+    });
+    return `${c}-${Math.max(0, best)}`;
+  }, []);
+
+  // A player's emote is said by their character on the board.
+  const seenEmote = useRef(-1);
+  useEffect(() => {
+    const top = state.emotes.reduce((m, e) => (e.id > m ? e.id : m), 0);
+    if (seenEmote.current === -1) { seenEmote.current = top; return; }
+    state.emotes
+      .filter((e) => e.id > seenEmote.current)
+      .forEach((e) => say(voiceOf(e.color), e.color, EMOTE_LINE[e.emote], true));
+    seenEmote.current = top;
+  }, [state.emotes, say, voiceOf]);
+
+  // Sometimes a character cheers when its turn comes round.
+  const prevTurn = useRef(state.turn);
+  useEffect(() => {
+    if (prevTurn.current === state.turn) return;
+    prevTurn.current = state.turn;
+    if (state.phase === 'rolling' && Math.random() < 0.35) react(voiceOf(state.turn), state.turn, 'turn', 300);
+  }, [state.turn, state.phase, react, voiceOf]);
+
   const [reduce, setReduce] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -596,9 +691,9 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
     });
     const views: BurstView[] = [];
     burstsRef.current = burstsRef.current.filter((b) => {
-      const t = (now - b.start) / (b.fight ? FIGHT_MS : 480);
+      const t = (now - b.start) / (b.fight ? FIGHT_MS : b.goal ? 1200 : 480);
       if (t >= 1) return false;
-      if (t >= 0) views.push({ id: b.id, x: b.x, y: b.y, color: b.color, t, dust: b.dust, fight: b.fight });
+      if (t >= 0) views.push({ id: b.id, x: b.x, y: b.y, color: b.color, t, dust: b.dust, fight: b.fight, goal: b.goal });
       return true;
     });
     overRef.current = next;
@@ -656,7 +751,13 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
       animsRef.current.push({ key, pts, seg, start: now, lift: o === 0 ? geo.d * 0.6 : geo.d * 0.3, arc: false });
       maxDur = Math.max(maxDur, steps * seg);
       ends.push({ c, i, p });
-      if (o === 0) sfx('jump');
+      if (o === 0) {
+        sfx('jump');
+        react(key, c, 'exit', 120);
+      } else if (p === GOAL) {
+        react(key, c, 'goal', steps * seg);
+        burstsRef.current.push({ id: burstId.current++, x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, color: c, start: now + steps * seg, goal: true });
+      }
     });
     dec.forEach(({ c, i, o }) => {
       const key = `${c}-${i}`;
@@ -680,13 +781,18 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         animsRef.current.push({ key: akey, pts: [at, at], seg: FIGHT_MS, start: now + maxDur, lift: 0, arc: false, brawl: true, side: 1 });
         burstsRef.current.push({ id: burstId.current++, x: from.x, y: from.y, color: c, start: now + maxDur, fight: true });
         [0.083, 0.417, 0.75].forEach((f) => setTimeout(() => sfx('hit'), maxDur + f * FIGHT_MS));
-        lockRef.current = Date.now() + maxDur + FIGHT_MS + 300;
+        lockRef.current = Date.now() + maxDur + FIGHT_MS + CLIP_MS + 300;
+        react(akey, att.c, 'brag', maxDur + 80);
+        react(key, c, 'ouch', maxDur + 420);
+        // the mini clip plays once the scuffle on the square is over
+        const attacker = att.c;
+        setTimeout(() => setClip({ id: clipId.current++, attacker, victim: c }), maxDur + FIGHT_MS);
       }
       burstsRef.current.push({ id: burstId.current++, x: from.x, y: from.y, color: c, start: now + maxDur + fightMs });
       setTimeout(() => sfx('hit'), maxDur + fightMs);
     });
     run();
-  }, [state.pieces, state.roomCode, state.phase, geo, run]);
+  }, [state.pieces, state.roomCode, state.phase, geo, run, react]);
 
   // Turn glow ring.
   const pulse = useSharedValue(0.4);
@@ -813,6 +919,29 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         {fx.map((b) =>
           b.fight ? (
             <FightFx key={b.id} x={b.x} y={b.y} t={b.t} d={geo.d} color={b.color} />
+          ) : b.goal ? (
+            <G key={b.id}>
+              {Array.from({ length: 16 }, (_, k) => {
+                const ang = (k / 16) * Math.PI * 2;
+                const r = geo.d * (0.4 + 2.2 * (1 - (1 - b.t) * (1 - b.t)));
+                const fall = b.t * b.t * geo.d * 1.4;
+                const col = k % 3 === 0 ? gold.tint : k % 3 === 1 ? hues[b.color].tint : '#FFFFFF';
+                return (
+                  <Rect
+                    key={k}
+                    x={b.x + Math.cos(ang) * r - geo.d * 0.09}
+                    y={b.y + Math.sin(ang) * r * 0.8 + fall - geo.d * 0.06}
+                    width={geo.d * 0.18}
+                    height={geo.d * 0.12}
+                    rx={geo.d * 0.03}
+                    fill={col}
+                    fillOpacity={1 - b.t}
+                    transform={`rotate(${(k * 47 + b.t * 720) % 360} ${b.x + Math.cos(ang) * r} ${b.y + Math.sin(ang) * r * 0.8 + fall})`}
+                  />
+                );
+              })}
+              <Circle cx={b.x} cy={b.y} r={geo.d * (0.5 + b.t * 2.4)} fill="none" stroke={gold.tint} strokeOpacity={1 - b.t} strokeWidth={4 * (1 - b.t) + 0.5} />
+            </G>
           ) : b.dust ? (
             <G key={b.id}>
               {[-1, 0, 1].map((k) => (
@@ -868,10 +997,30 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
               dimmed={dimmed}
               stacked={stackedKeys.has(it.key)}
               onPress={movable ? () => press(it.index) : undefined}
+              excited={showTurn && state.turn === it.color && !it.anim}
+              still={it.anim}
             />
           </View>
         ))}
+        {placed.map(({ it, gx, gy }) => {
+          const t = talks[it.key];
+          if (!t) return null;
+          return <TalkBubble key={`talk-${it.key}`} talk={t} x={gx} y={gy - it.lift - pawnSize * 1.55} board={S} />;
+        })}
       </View>
+      {clip ? (
+        <CaptureClip
+          key={clip.id}
+          attacker={clip.attacker}
+          victim={clip.victim}
+          size={S}
+          onHit={() => sfx('hit')}
+          onDone={() => {
+            setClip((c) => (c && c.id === clip.id ? null : c));
+            lockRef.current = Math.min(lockRef.current, Date.now() + 150);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

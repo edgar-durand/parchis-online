@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import Svg, { Circle, Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import Animated, {
@@ -7,6 +7,7 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSequence,
   withTiming,
@@ -166,8 +167,56 @@ function Head({ emblem }: { emblem: Emblem }) {
   }
 }
 
-export default function Pawn({ color, x, y, size, movable, dimmed, stacked, onPress }: PawnProps) {
+// Where each character's open eyes sit (Head coordinates): a blink covers them with lids.
+const EYES: Record<Emblem, { x: number; y: number }[]> = {
+  hat: [{ x: 44, y: 47 }, { x: 56, y: 47 }],
+  boot: [{ x: 56, y: 47 }],
+  swords: [{ x: 56, y: 47 }],
+  wave: [{ x: 43, y: 47 }, { x: 57, y: 47 }],
+};
+const SKIN_OF: Record<Emblem, string> = { hat: SKIN, boot: SKIN, swords: SKIN_TAN, wave: SKIN_BLUE };
+
+function Lids({ emblem }: { emblem: Emblem }) {
+  return (
+    <G>
+      {EYES[emblem].map((e) => (
+        <G key={`${e.x}`}>
+          <Ellipse cx={e.x} cy={e.y} rx={3} ry={2.8} fill={SKIN_OF[emblem]} />
+          <Path d={`M${e.x - 2.6} ${e.y + 0.4} Q${e.x} ${e.y + 1.8} ${e.x + 2.6} ${e.y + 0.4}`} stroke={EYE} strokeWidth={1.3} strokeLinecap="round" fill="none" />
+        </G>
+      ))}
+    </G>
+  );
+}
+
+/** A random whole number of ms in [a, b). */
+function between(a: number, b: number): number {
+  return a + Math.floor(Math.random() * (b - a));
+}
+
+export type PawnPose = 'idle' | 'run' | 'hit' | 'cheer';
+
+export default function Pawn({
+  color,
+  x,
+  y,
+  size,
+  movable,
+  dimmed,
+  stacked,
+  onPress,
+  pose = 'idle',
+  excited = false,
+  still = false,
+}: PawnProps & { pose?: PawnPose; excited?: boolean; still?: boolean }) {
   const reduced = useReducedMotion();
+  // Alive: breathing, blinking and a spontaneous fidget now and then (a hop, a look around,
+  // a shake), each character on its own random clock so the crew never moves in sync.
+  const breath = useSharedValue(0);
+  const idleHop = useSharedValue(0);
+  const tilt = useSharedValue(0);
+  const run = useSharedValue(0);
+  const [blink, setBlink] = useState(false);
   const h = hues[color];
   const emblem = CHARACTERS[color].emblem as Emblem;
   const cfg = LEGS[emblem] ?? LEGS.hat;
@@ -277,19 +326,134 @@ export default function Pawn({ color, x, y, size, movable, dimmed, stacked, onPr
     return () => cancelAnimation(pulse);
   }, [movable, reduced, pulse]);
 
+  const calm = reduced || still;
+  useEffect(() => {
+    if (calm) {
+      cancelAnimation(breath);
+      breath.value = 0;
+      return;
+    }
+    breath.value = withDelay(
+      between(0, 900),
+      withRepeat(withTiming(1, { duration: between(1500, 2300), easing: Easing.inOut(Easing.sin) }), -1, true),
+    );
+    return () => cancelAnimation(breath);
+  }, [calm, breath]);
+
+  useEffect(() => {
+    if (reduced) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(() => {
+        if (!alive) return;
+        setBlink(true);
+        setTimeout(() => alive && setBlink(false), 120);
+        next();
+      }, between(2200, 5600));
+    };
+    next();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [reduced]);
+
+  useEffect(() => {
+    if (calm || pose !== 'idle') return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const fidget = () => {
+      const roll = Math.random();
+      if (roll < 0.4) {
+        // a little hop (two when excited)
+        idleHop.value = withSequence(
+          withTiming(1, { duration: 170, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 190, easing: Easing.in(Easing.quad) }),
+          ...(excited ? [withTiming(0.8, { duration: 160 }), withTiming(0, { duration: 180 })] : []),
+        );
+      } else if (roll < 0.75) {
+        // looks around
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        tilt.value = withSequence(
+          withTiming(dir * 9, { duration: 220 }),
+          withDelay(between(250, 600), withTiming(-dir * 6, { duration: 260 })),
+          withTiming(0, { duration: 220 }),
+        );
+      } else {
+        // a happy shake
+        tilt.value = withSequence(
+          withTiming(6, { duration: 70 }),
+          withTiming(-6, { duration: 90 }),
+          withTiming(5, { duration: 90 }),
+          withTiming(-4, { duration: 90 }),
+          withTiming(0, { duration: 80 }),
+        );
+      }
+    };
+    const loop = () => {
+      timer = setTimeout(() => {
+        if (!alive) return;
+        fidget();
+        loop();
+      }, excited ? between(900, 1900) : between(3500, 9000));
+    };
+    loop();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [calm, pose, excited, idleHop, tilt]);
+
+  useEffect(() => {
+    cancelAnimation(run);
+    cancelAnimation(swing);
+    if (reduced) {
+      run.value = pose === 'run' ? 1 : 0;
+      return;
+    }
+    if (pose === 'run') {
+      run.value = withTiming(1, { duration: 120 });
+      swing.value = withRepeat(
+        withSequence(withTiming(1, { duration: 120 }), withTiming(-1, { duration: 120 })),
+        -1,
+      );
+      idleHop.value = withRepeat(
+        withSequence(withTiming(0.7, { duration: 120, easing: Easing.out(Easing.quad) }), withTiming(0, { duration: 120 })),
+        -1,
+      );
+    } else if (pose === 'cheer') {
+      run.value = withTiming(0, { duration: 120 });
+      idleHop.value = withRepeat(
+        withSequence(withTiming(1.4, { duration: 220, easing: Easing.out(Easing.quad) }), withTiming(0, { duration: 220, easing: Easing.in(Easing.quad) })),
+        -1,
+      );
+      swing.value = withRepeat(withSequence(withTiming(1, { duration: 220 }), withTiming(-1, { duration: 220 })), -1);
+    } else if (pose === 'hit') {
+      run.value = withTiming(0, { duration: 80 });
+      tilt.value = withRepeat(withSequence(withTiming(-14, { duration: 90 }), withTiming(10, { duration: 90 })), -1, true);
+    } else {
+      run.value = withTiming(0, { duration: 160 });
+      swing.value = withTiming(0, { duration: 160 });
+      idleHop.value = withTiming(0, { duration: 160 });
+      tilt.value = withTiming(0, { duration: 160 });
+    }
+  }, [pose, reduced, run, swing, idleHop, tilt]);
+
   const containerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: px.value - ox }, { translateY: py.value - oy }],
   }));
   const spriteStyle = useAnimatedStyle(() => {
     const s = hopN.value;
     const m = moving.value;
-    const deg = face.value * m * 6 + swing.value * 3 + spin.value;
+    const b = breath.value;
+    const deg = face.value * m * 6 + swing.value * 3 + spin.value + tilt.value + run.value * 10;
     return {
       transform: [
-        { translateY: -s * liftV.value - pulse.value * 2 },
+        { translateY: -s * liftV.value - pulse.value * 2 - idleHop.value * size * 0.45 },
         { rotate: `${deg}deg` },
-        { scaleX: 1 - 0.08 * (s - 0.5) * m },
-        { scaleY: 1 + 0.12 * (s - 0.5) * m },
+        { scaleX: (1 - 0.08 * (s - 0.5) * m) * (1 - 0.018 * b) },
+        { scaleY: (1 + 0.12 * (s - 0.5) * m) * (1 + 0.035 * b) },
       ],
     };
   });
@@ -407,6 +571,7 @@ export default function Pawn({ color, x, y, size, movable, dimmed, stacked, onPr
             <Rect x={45} y={50} width={10} height={10} fill={emblem === 'wave' ? SKIN_BLUE : emblem === 'swords' ? SKIN_TAN : SKIN} />
             <G transform="translate(-7.5 -18) scale(1.15)">
               <Head emblem={emblem} />
+              {blink || pose === 'hit' ? <Lids emblem={emblem} /> : null}
             </G>
             <Ellipse cx={42} cy={22} rx={6} ry={2.4} fill="#FFFFFF" opacity={0.28} />
           </Svg>

@@ -192,6 +192,71 @@ function playSfx(kind: Sfx): void {
   }
 }
 
+
+// ---------- Side panel pieces ----------
+
+const LOG_ICON: Record<LogEntry['kind'], keyof typeof Ionicons.glyphMap> = {
+  roll: 'cube-outline',
+  move: 'footsteps-outline',
+  capture: 'flash',
+  goal: 'flag',
+  exit: 'boat-outline',
+  skip: 'play-skip-forward-outline',
+  penalty: 'alert-circle-outline',
+  info: 'information-circle-outline',
+};
+
+function LogRow({ e, latest, age, ink, muted }: { e: LogEntry; latest: boolean; age: number; ink: string; muted: string }) {
+  const name = CHARACTERS[e.color].name;
+  const rest = e.text.startsWith(name) ? e.text.slice(name.length) : null;
+  const strong = e.kind === 'capture' || e.kind === 'goal';
+  return (
+    <View
+      style={[
+        panel.logRow,
+        latest ? { backgroundColor: 'rgba(242,179,61,0.14)', borderColor: 'rgba(242,179,61,0.45)' } : null,
+        { opacity: Math.max(0.5, 1 - age * 0.1) },
+      ]}
+    >
+      <View style={[panel.logIcon, { backgroundColor: playerColors[e.color] }]}>
+        <Ionicons name={LOG_ICON[e.kind] ?? 'ellipse'} size={13} color="#FFFFFF" />
+      </View>
+      <Text style={[panel.logText, { color: strong ? ink : latest ? ink : muted, fontWeight: strong || latest ? '700' : '500' }]} numberOfLines={2}>
+        {rest !== null ? (
+          <>
+            <Text style={{ color: playerColors[e.color], fontWeight: '800' }}>{name}</Text>
+            {rest}
+          </>
+        ) : (
+          e.text
+        )}
+      </Text>
+    </View>
+  );
+}
+
+function Pips({ pieces, color }: { pieces: number[]; color: Color }) {
+  return (
+    <View style={panel.pips} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {pieces.map((prog, i) => (
+        <View
+          key={i}
+          style={[
+            panel.pip,
+            prog === GOAL
+              ? { backgroundColor: playerColors[color], borderColor: playerColors[color] }
+              : prog > 0
+                ? { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: playerColors[color] }
+                : { backgroundColor: 'transparent', borderColor: 'rgba(255,255,255,0.28)' },
+          ]}
+        >
+          {prog === GOAL ? <Ionicons name="star" size={8} color="#FFFFFF" /> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function GameScreen(props: GameScreenProps): JSX.Element {
   const { state, myColor, legal, canRoll, status, settings, onRoll, onMove, onEmote: onEmoteProp, onLeave } = props;
   const onEmote = useCallback(
@@ -219,6 +284,8 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
   const seenEmoteId = useRef<number>(-1);
   const soundOn = useRef<boolean>(true);
   soundOn.current = (settings as unknown as { sound?: boolean }).sound !== false;
+  // the board's effects and the characters' voices read the same switch
+  (globalThis as { REMIX_SOUND_ON?: boolean }).REMIX_SOUND_ON = soundOn.current;
   const play = useCallback((kind: Sfx) => {
     if (soundOn.current) playSfx(kind);
   }, []);
@@ -363,7 +430,8 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
   const isDesktop = Platform.OS === 'web' && width >= DESKTOP_MIN_WIDTH;
   const boardSize = isDesktop
-    ? Math.max(360, Math.min(height - space[4] * 2 - 48, width - PANEL_WIDTH - space[4] * 3, 860))
+    ? // the board takes the whole height it has (at least half the screen when it fits), the panel the rest
+      Math.max(360, Math.min(height - space[3] * 2, width - PANEL_WIDTH - space[4] * 3))
     : Math.max(260, Math.min(width, height - RESERVED_HEIGHT));
 
   const turnSeat = seatOf(state.turn);
@@ -456,33 +524,82 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
                 />
               </View>
               <ScrollView
-                style={{ width: PANEL_WIDTH, maxHeight: Math.max(boardSize, 520) }}
+                style={{ width: PANEL_WIDTH, maxHeight: boardSize }}
                 contentContainerStyle={styles.deskPanel}
                 showsVerticalScrollIndicator={false}
               >
                 <View style={styles.deskHeader}>
                   <IconButton icon="exit-outline" label="Salir de la partida" variant="secondary" onPress={() => setConfirmLeave(true)} />
-                  <View style={[styles.turnPill, styles.deskPill, { backgroundColor: p.surface, borderColor: playerColors[state.turn] }]}>
-                    <View style={[styles.dot, { backgroundColor: playerColors[state.turn] }]} />
-                    <Text
-                      accessibilityRole="header"
-                      accessibilityLiveRegion="polite"
-                      style={[styles.hint, { color: p.ink }]}
-                    >
-                      {hint}
-                    </Text>
+                  <View
+                    style={[
+                      panel.turn,
+                      { borderColor: playerColors[state.turn], backgroundColor: p.surface, shadowColor: playerColors[state.turn] },
+                    ]}
+                  >
+                    <View style={[panel.turnPortrait, { borderColor: playerColors[state.turn] }]}>
+                      <CharacterEmblem color={state.turn} size={46} variant="badge" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[panel.overline, { color: playerColors[state.turn] }]}>
+                        {state.phase === 'over' ? 'FIN DE LA PARTIDA' : isMyTurn ? 'TU TURNO' : `TURNO DE ${turnChar.name.toUpperCase()}`}
+                      </Text>
+                      <Text accessibilityRole="header" accessibilityLiveRegion="polite" style={[panel.turnHint, { color: p.ink }]}>
+                        {hint}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
-                <View style={styles.deskChips}>
-                  {COLORS.map((c) => (
-                    <View key={c} style={styles.deskChipCell}>
-                      {renderChip(c, 'left', true)}
-                    </View>
-                  ))}
+                <View style={[panel.card, { backgroundColor: p.surface, borderColor: p.line }]}>
+                  <Text style={[panel.cardTitle, { color: p.inkMuted }]}>TRIPULACIÓN</Text>
+                  {COLORS.map((c) => {
+                    const seat = seatOf(c);
+                    const isTurn = state.turn === c && state.phase !== 'over';
+                    const isMe = c === myColor;
+                    const emote = bubbles[c]?.emote ?? null;
+                    const offline = !!seat && !seat.connected && !seat.isBot;
+                    return (
+                      <View
+                        key={c}
+                        accessible
+                        accessibilityLabel={`${shortName(seat?.name ?? '', CHARACTERS[c].name)}${isMe ? ' (tú)' : ''}, ${CHARACTERS[c].name}, ${homeCount(c)} de 4 en el faro, ${state.captures[c] ?? 0} capturas${isTurn ? ', es su turno' : ''}`}
+                        style={[
+                          panel.crewRow,
+                          isTurn ? { backgroundColor: p.surfaceHi, borderColor: playerColors[c] } : { borderColor: 'transparent' },
+                          offline ? { opacity: 0.6 } : null,
+                        ]}
+                      >
+                        <View style={[panel.turnBar, { backgroundColor: isTurn ? playerColors[c] : 'transparent' }]} />
+                        <CharacterEmblem color={c} size={38} variant="badge" />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={panel.nameLine}>
+                            <Text style={[panel.crewName, { color: p.ink }]} numberOfLines={1}>
+                              {shortName(seat?.name ?? '', CHARACTERS[c].name)}
+                            </Text>
+                            {isMe ? <Text style={[panel.tag, { color: p.accentInk, backgroundColor: p.accent }]}>TÚ</Text> : null}
+                            {seat?.isBot ? <Text style={[panel.tag, { color: p.ink, backgroundColor: p.line }]}>BOT</Text> : null}
+                            {offline ? <Ionicons name="cloud-offline-outline" size={14} color={p.warning} /> : null}
+                          </View>
+                          <Text style={[panel.crewSub, { color: p.inkMuted }]} numberOfLines={1}>
+                            {emote ? EMOTE_TEXT[emote] : CHARACTERS[c].name}
+                          </Text>
+                        </View>
+                        <View style={panel.crewStats}>
+                          <Pips pieces={state.pieces[c]} color={c} />
+                          <View style={panel.caps}>
+                            <Ionicons name="flash" size={12} color={p.accent} />
+                            <Text style={[panel.capsText, { color: p.ink }]}>{state.captures[c] ?? 0}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
 
-                <View style={[styles.diceRow, styles.deskCard, { backgroundColor: p.surface, borderColor: p.line }]}>
+                <View style={[panel.card, panel.diceCard, { backgroundColor: p.surface, borderColor: canRoll && !rolling ? p.accent : p.line }]}>
+                  <Text style={[panel.cardTitle, { color: p.inkMuted, alignSelf: 'stretch' }]}>
+                    {isMyTurn ? 'TUS DADOS' : `DADOS DE ${turnChar.name.toUpperCase()}`}
+                  </Text>
                   <Dice
                     value={state.dice}
                     value2={state.dice2 ?? null}
@@ -492,7 +609,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
                     onRoll={handleRoll}
                   />
                   {choosing ? (
-                    <View style={styles.useCol} accessibilityLabel="Elige qué dados usar">
+                    <View style={panel.useRow} accessibilityLabel="Elige qué dados usar">
                       {useOptions.map((u) => (
                         <Chip key={u} label={useLabel(u)} selected={u === activeUse} onPress={() => setUseSel(u)} />
                       ))}
@@ -500,21 +617,20 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
                   ) : null}
                 </View>
 
-                <EmoteBar onEmote={onEmote} disabled={myColor === null || status === 'offline'} />
+                <View style={[panel.card, { backgroundColor: p.surface, borderColor: p.line }]}>
+                  <Text style={[panel.cardTitle, { color: p.inkMuted }]}>GRITOS DE GUERRA</Text>
+                  <EmoteBar onEmote={onEmote} disabled={myColor === null || status === 'offline'} />
+                </View>
 
-                <View style={[styles.log, { backgroundColor: p.surface, borderColor: p.line }]} accessibilityLabel="Registro de eventos">
+                <View style={[panel.card, { backgroundColor: p.surface, borderColor: p.line }]} accessibilityLabel="Bitácora de la partida">
+                  <Text style={[panel.cardTitle, { color: p.inkMuted }]}>BITÁCORA</Text>
                   {state.log.length === 0 ? (
                     <Text style={[styles.logText, { color: p.inkMuted }]}>La partida acaba de empezar.</Text>
                   ) : (
                     state.log
-                      .slice(-8)
+                      .slice(-6)
                       .reverse()
-                      .map((e) => (
-                        <View key={e.id} style={styles.logRow}>
-                          <View style={[styles.logDot, { backgroundColor: playerColors[e.color] }]} />
-                          <Text style={[styles.logText, { color: p.ink }]}>{e.text}</Text>
-                        </View>
-                      ))
+                      .map((e, i) => <LogRow key={e.id} e={e} latest={i === 0} age={i} ink={p.ink} muted={p.inkMuted} />)
                   )}
                 </View>
               </ScrollView>
@@ -607,12 +723,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
             {recent.length === 0 ? (
               <Text style={[styles.logText, { color: p.inkMuted }]}>La partida acaba de empezar.</Text>
             ) : (
-              recent.map((e) => (
-                <View key={e.id} style={styles.logRow}>
-                  <View style={[styles.logDot, { backgroundColor: playerColors[e.color] }]} />
-                  <Text style={[styles.logText, { color: p.ink }]}>{e.text}</Text>
-                </View>
-              ))
+              recent.map((e, i) => <LogRow key={e.id} e={e} latest={i === 0} age={i} ink={p.ink} muted={p.inkMuted} />)
             )}
           </Pressable>
         </ScrollView>
@@ -652,7 +763,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  deskRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space[4] },
+  deskRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: space[3], paddingHorizontal: space[4] },
   deskInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -731,4 +842,60 @@ const styles = StyleSheet.create({
   dialogLine: { ...typeScale.sm },
   dialogActions: { flexDirection: 'row', gap: space[2], marginTop: space[2] },
   dialogBtn: { flex: 1 },
+});
+
+const panel = StyleSheet.create({
+  turn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    borderWidth: 2,
+    borderRadius: radius.card,
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+  turnPortrait: { borderWidth: 2, borderRadius: 999, padding: 2 },
+  overline: { ...typeScale.xs, fontWeight: '900', letterSpacing: 1.2 },
+  turnHint: { ...typeScale.md, fontWeight: '800' },
+  card: { borderRadius: radius.card, borderWidth: 1, padding: space[3], gap: space[2] },
+  cardTitle: { ...typeScale.xs, fontWeight: '900', letterSpacing: 1.4 },
+  crewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: space[1] + 2,
+    paddingRight: space[2],
+    overflow: 'hidden',
+  },
+  turnBar: { width: 4, alignSelf: 'stretch', borderRadius: 2 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  crewName: { ...typeScale.md, fontWeight: '800', flexShrink: 1 },
+  crewSub: { ...typeScale.xs },
+  tag: { ...typeScale.xs, fontSize: 10, lineHeight: 14, fontWeight: '900', paddingHorizontal: 6, borderRadius: 999, overflow: 'hidden' },
+  crewStats: { alignItems: 'flex-end', gap: 4 },
+  pips: { flexDirection: 'row', gap: 4 },
+  pip: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  caps: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  capsText: { ...typeScale.xs, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  diceCard: { alignItems: 'center' },
+  useRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space[1] },
+  logRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    paddingVertical: 5,
+    paddingHorizontal: space[2],
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  logIcon: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  logText: { ...typeScale.sm, flexShrink: 1 },
 });

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { File, Paths } from 'expo-file-system';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import type { EmoteBarProps, EmoteId } from '../types';
@@ -117,13 +118,13 @@ function playEmoteSound(id: EmoteId): void {
   }
 }
 
-const EMOTES: { id: EmoteId; short: string; full: string }[] = [
-  { id: 'gomu', short: 'Gomu', full: '¡Gomu Gomu!' },
-  { id: 'laugh', short: 'Jaja', full: 'Risa' },
-  { id: 'cry', short: 'Buaa', full: 'Llanto' },
-  { id: 'nakama', short: 'Nakama', full: '¡Nakama!' },
-  { id: 'king', short: 'Rey', full: '¡Rey de los Piratas!' },
-  { id: 'gg', short: 'GG', full: 'GG' },
+const EMOTES: { id: EmoteId; short: string; full: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'gomu', short: 'Gomu', full: '¡Gomu Gomu!', icon: 'hand-right' },
+  { id: 'laugh', short: 'Jaja', full: 'Risa', icon: 'happy' },
+  { id: 'cry', short: 'Buaa', full: 'Llanto', icon: 'sad' },
+  { id: 'nakama', short: 'Nakama', full: '¡Nakama!', icon: 'people' },
+  { id: 'king', short: 'Rey', full: '¡Rey de los Piratas!', icon: 'trophy' },
+  { id: 'gg', short: 'GG', full: 'GG', icon: 'thumbs-up' },
 ];
 
 export default function EmoteBar({ onEmote, disabled }: EmoteBarProps): JSX.Element {
@@ -184,6 +185,7 @@ export default function EmoteBar({ onEmote, disabled }: EmoteBarProps): JSX.Elem
               off && local.off,
             ]}
           >
+            <Ionicons name={e.icon} size={16} color={p.accent} />
             <Text style={[s.chipLabel, local.label]} numberOfLines={1} allowFontScaling={false}>
               {e.short}
             </Text>
@@ -208,7 +210,7 @@ export default function EmoteBar({ onEmote, disabled }: EmoteBarProps): JSX.Elem
 
 const local = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space[1] },
-  chip: { flexGrow: 1, minWidth: 52, height: HIT, paddingHorizontal: space[1] },
+  chip: { flexBasis: '31%', flexGrow: 1, minWidth: 84, height: HIT, paddingHorizontal: space[2], borderRadius: 12 },
   label: { textAlign: 'center' },
   off: { opacity: 0.45 },
   track: { height: 3, borderRadius: radius.chip, marginTop: space[2], overflow: 'hidden' },
