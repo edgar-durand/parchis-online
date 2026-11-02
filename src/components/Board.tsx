@@ -826,15 +826,18 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         <StaticBoard geo={geo} />
 
         {showTurn && tn ? (
+          // a soft rounded halo around the camp whose turn it is
           <AnimatedRect
-            x={tn.x - 2}
-            y={tn.y - 2}
-            width={tn.w + 4}
-            height={tn.h + 4}
-            rx={geo.d * 0.5}
-            fill="none"
+            x={tn.x + tn.w * 0.02}
+            y={tn.y - tn.h * 0.06}
+            width={tn.w * 0.96}
+            height={tn.h * 1.06}
+            rx={tn.w * 0.2}
+            fill={gold.tint}
+            fillOpacity={0.08}
             stroke={gold.tint}
-            strokeWidth={4}
+            strokeWidth={3}
+            strokeDasharray={`${geo.d * 0.5} ${geo.d * 0.25}`}
             animatedProps={glowProps}
           />
         ) : null}
