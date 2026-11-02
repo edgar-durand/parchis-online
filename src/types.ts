@@ -137,7 +137,9 @@ export interface GameScreenProps { state: GameState; myColor: Color | null; lega
 export interface ResultScreenProps { state: GameState; myColor: Color | null; isHost: boolean; onRematch(): void; onExit(): void }
 export interface ProfileScreenProps { store: ProfileStore }
 export interface TabBarProps { tab: Tab; onChange(t: Tab): void }
-export interface BoardProps { state: GameState; myColor: Color | null; legal: LegalMove[]; fixedView: boolean; onPiece(pieceIndex: number, use?: DieUse): void; size: number }
+// A big moment the screen shows as a full-screen mini clip (the board shows it itself when unset).
+export type BoardClip = { id: number; kind: 'capture'; attacker: Color; victim: Color } | { id: number; kind: 'goal'; color: Color; home: number };
+export interface BoardProps { state: GameState; myColor: Color | null; legal: LegalMove[]; fixedView: boolean; onPiece(pieceIndex: number, use?: DieUse): void; size: number; onClip?: (c: BoardClip) => void }
 export interface PawnProps { color: Color; x: number; y: number; size: number; movable: boolean; dimmed: boolean; stacked?: boolean; onPress?: () => void }
 export interface DiceProps { value: number | null; value2: number | null; enabled: boolean; rolling: boolean; color: Color; onRoll(): void }
 export interface EmblemProps { color: Color; size: number; variant: 'portrait' | 'badge' }

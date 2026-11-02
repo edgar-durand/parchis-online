@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CHARACTERS, COLORS, GOAL } from '../types';
-import type { Color, DieUse, EmoteId, GameScreenProps, LogEntry, Seat } from '../types';
+import type { BoardClip, Color, DieUse, EmoteId, GameScreenProps, LogEntry, Seat } from '../types';
 import { motion, playerColors, radius, space, type as typeScale } from '../theme';
 import Board from '../components/Board';
+import CaptureClip from '../components/CaptureClip';
+import GoalClip from '../components/GoalClip';
 import * as boardEngine from '../engine/board';
 import Dice from '../components/Dice';
 import CharacterEmblem from '../components/CharacterEmblem';
@@ -275,6 +277,9 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
   const [toast, setToast] = useState<string | null>(null);
   const [bubbles, setBubbles] = useState<Partial<Record<Color, Bubble>>>({});
   const [useSel, setUseSel] = useState<DieUse | null>(null);
+  // The board's big moments, shown centred over the whole screen.
+  const [clip, setClip] = useState<BoardClip | null>(null);
+  const onClip = useCallback((c: BoardClip) => setClip(c), []);
 
   const rollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -438,6 +443,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
       Math.max(360, Math.min(height - space[3] * 2, width - PANEL_WIDTH - space[4] * 3))
     : Math.max(260, Math.min(width, height - RESERVED_HEIGHT));
 
+  const clipSize = Math.floor(Math.min(width, height) * (isDesktop ? 0.82 : 0.96));
   const turnSeat = seatOf(state.turn);
   const turnChar = CHARACTERS[state.turn];
   let hint: string;
@@ -525,6 +531,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
                   fixedView={settings.fixedBoard}
                   onPiece={handlePiece}
                   size={boardSize}
+                  onClip={onClip}
                 />
               </View>
               <ScrollView
@@ -680,6 +687,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
               fixedView={settings.fixedBoard}
               onPiece={handlePiece}
               size={boardSize}
+              onClip={onClip}
             />
           </View>
 
@@ -735,6 +743,18 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
         <Toast message={toast} />
 
+        {clip ? (
+          <View style={[StyleSheet.absoluteFill, styles.clipLayer]}>
+            <View style={{ width: clipSize, height: clipSize, borderRadius: clipSize * 0.03, overflow: 'hidden', ...elevationClip }}>
+              {clip.kind === 'capture' ? (
+                <CaptureClip key={clip.id} attacker={clip.attacker} victim={clip.victim} size={clipSize} onDone={() => setClip((c) => (c && c.id === clip.id ? null : c))} />
+              ) : (
+                <GoalClip key={clip.id} color={clip.color} home={clip.home} size={clipSize} onDone={() => setClip((c) => (c && c.id === clip.id ? null : c))} />
+              )}
+            </View>
+          </View>
+        ) : null}
+
         {confirmLeave ? (
           <View style={[styles.overlay, { backgroundColor: p.overlay }]}>
             <View style={[styles.dialog, { backgroundColor: p.surface, borderColor: p.line }]}>
@@ -765,8 +785,11 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
   );
 }
 
+const elevationClip = { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 24 };
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  clipLayer: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(5,12,22,0.7)', zIndex: 100 },
   deskRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: space[3], paddingHorizontal: space[4] },
   deskInner: {
     flexDirection: 'row',

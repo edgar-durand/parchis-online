@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Defs, Ellipse, G, Line, LinearGradient, Path, Polygon, RadialGradient, Rect, Stop } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import { BoardProps, COLORS, Color, GOAL, Point, SAFE_SQUARES, START_SQUARE } from '../types';
+import { BoardClip, BoardProps, COLORS, Color, GOAL, Point, SAFE_SQUARES, START_SQUARE } from '../types';
 import { elevation } from '../theme';
 import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
 import CaptureClip, { CLIP_MS } from './CaptureClip';
+import GoalClip, { GOAL_CLIP_MS } from './GoalClip';
 import { TalkBubble, emoteLine, lineFor, speakLine } from './PirateTalk';
 import type { Line as VoiceLine, Talk, TalkKind } from './PirateTalk';
 
@@ -504,7 +505,7 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
 
 interface Item { key: string; color: Color; index: number; prog: number; x: number; y: number; lift: number; anim: boolean; face: number; sx: number; sy: number; rot: number; pose?: 'walk' | 'attack' | 'hit' }
 
-export default function Board({ state, myColor, legal, fixedView, onPiece, size }: BoardProps): JSX.Element {
+export default function Board({ state, myColor, legal, fixedView, onPiece, size, onClip }: BoardProps): JSX.Element {
   const S = Math.max(120, Math.round(size));
 
   const quarter = useMemo(() => {
@@ -573,8 +574,15 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
   useEffect(() => () => {
     Object.values(talkTimers.current).forEach(clearTimeout);
   }, []);
-  const [clip, setClip] = useState<{ id: number; attacker: Color; victim: Color } | null>(null);
+  const [clip, setClip] = useState<BoardClip | null>(null);
   const clipId = useRef(1);
+  const onClipRef = useRef(onClip);
+  onClipRef.current = onClip;
+  // The screen shows the clip full screen when it can; else the board shows it over itself.
+  const showClip = useCallback((c: BoardClip) => {
+    if (onClipRef.current) onClipRef.current(c);
+    else setClip(c);
+  }, []);
 
   // Spontaneous chatter: now and then a character on the board says something piratey.
   const piecesRef = useRef(state.pieces);
@@ -761,6 +769,9 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         react(key, c, 'exit', 120);
       } else if (p === GOAL) {
         react(key, c, 'goal', steps * seg);
+        const home = cur[c].filter((v) => v === GOAL).length;
+        setTimeout(() => showClip({ id: clipId.current++, kind: 'goal', color: c, home }), steps * seg + 250);
+        lockRef.current = Math.max(lockRef.current, Date.now() + steps * seg + 250 + GOAL_CLIP_MS);
         burstsRef.current.push({ id: burstId.current++, x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, color: c, start: now + steps * seg, goal: true });
       }
     });
@@ -791,13 +802,13 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         react(key, c, 'ouch', maxDur + 420);
         // the mini clip plays once the scuffle on the square is over
         const attacker = att.c;
-        setTimeout(() => setClip({ id: clipId.current++, attacker, victim: c }), maxDur + FIGHT_MS);
+        setTimeout(() => showClip({ id: clipId.current++, kind: 'capture', attacker, victim: c }), maxDur + FIGHT_MS);
       }
       burstsRef.current.push({ id: burstId.current++, x: from.x, y: from.y, color: c, start: now + maxDur + fightMs });
       setTimeout(() => sfx('hit'), maxDur + fightMs);
     });
     run();
-  }, [state.pieces, state.roomCode, state.phase, geo, run, react]);
+  }, [state.pieces, state.roomCode, state.phase, geo, run, react, showClip]);
 
   // Turn glow ring.
   const pulse = useSharedValue(0.4);
@@ -835,7 +846,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
     if (g.length < 2) return;
     g.forEach((it, k) => {
       const m = k - (g.length - 1) / 2;
-      offsets[it.key] = { x: m * geo.d * 0.3, y: m * geo.d * 0.08 };
+      offsets[it.key] = { x: m * geo.d * 0.42, y: m * geo.d * 0.1 };
       stackedKeys.add(it.key);
     });
   });
@@ -967,14 +978,16 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         )}
       </Svg>
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-        {placed.map(({ it, gx, gy, movable, dimmed }) => (
+        {[...placed.filter((x) => !x.movable), ...placed.filter((x) => x.movable)].map(({ it, gx, gy, movable, dimmed }) => (
           // Sized to the pawn's own box (never 0×0): iOS and Android only deliver a touch inside
           // the parent's bounds, so a pawn in a zero-size wrapper could not be tapped on a phone.
           <View
             key={it.key}
-            pointerEvents="box-none"
+            // a pawn that can't move never swallows a tap meant for the one under it
+            pointerEvents={movable ? 'box-none' : 'none'}
             style={{
               position: 'absolute',
+              zIndex: movable ? 2 : 1,
               left: gx - pawnBox / 2,
               top: gy - it.lift - pawnBox * 0.62,
               width: pawnBox,
@@ -1010,17 +1023,30 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         })}
       </View>
       {clip ? (
-        <CaptureClip
-          key={clip.id}
-          attacker={clip.attacker}
-          victim={clip.victim}
-          size={S}
-          onHit={() => sfx('hit')}
-          onDone={() => {
-            setClip((c) => (c && c.id === clip.id ? null : c));
-            lockRef.current = Math.min(lockRef.current, Date.now() + 150);
-          }}
-        />
+        clip.kind === 'capture' ? (
+          <CaptureClip
+            key={clip.id}
+            attacker={clip.attacker}
+            victim={clip.victim}
+            size={S}
+            onHit={() => sfx('hit')}
+            onDone={() => {
+              setClip((c) => (c && c.id === clip.id ? null : c));
+              lockRef.current = Math.min(lockRef.current, Date.now() + 150);
+            }}
+          />
+        ) : (
+          <GoalClip
+            key={clip.id}
+            color={clip.color}
+            home={clip.home}
+            size={S}
+            onDone={() => {
+              setClip((c) => (c && c.id === clip.id ? null : c));
+              lockRef.current = Math.min(lockRef.current, Date.now() + 150);
+            }}
+          />
+        )
       ) : null}
     </View>
   );
