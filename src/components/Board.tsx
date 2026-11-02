@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Image, Platform, StyleSheet, View } from 'react-native';
-import { ambientUrl } from '../art-sprites';
-import type { AmbientId } from '../art-sprites';
+import { ART_BASE, ambientUrl } from '../art-sprites';
 
 // The island art is this much wider than the board: its beach, palms and docks ring the square.
 export const ISLAND = 1.3;
@@ -813,7 +812,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         return (
           <Image
             key={`camp-${c}`}
-            source={{ uri: ambientUrl(`camp-${c}` as AmbientId) }}
+            source={{ uri: `${ART_BASE}camp-${c}.webp` }}
             fadeDuration={0}
             resizeMode="stretch"
             style={{ position: 'absolute', width: w, height: n.h * 1.16, left: n.x + n.w / 2 - w / 2, top: n.y - n.h * 0.12 }}

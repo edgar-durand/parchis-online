@@ -13,8 +13,8 @@ export function artUrl(color: Color, pose: ArtPose): string {
 }
 
 // The harbour around the board: ship, flag and the series' animals (ar = width / height).
-export type AmbientId = 'camp-red' | 'camp-blue' | 'camp-yellow' | 'camp-green' | 'island' | 'ship' | 'flag' | 'laboon' | 'seaking' | 'newscoo' | 'dendenmushi' | 'karoo';
-export const AMBIENT_AR: Record<AmbientId, number> = {"camp-red": 1, "camp-blue": 1, "camp-yellow": 1, "camp-green": 1, "island": 1, "ship": 0.8819, "flag": 1.3043, "laboon": 1.2039, "seaking": 0.6679, "newscoo": 1.4694, "dendenmushi": 1.3575, "karoo": 1.107};
+export type AmbientId = 'island' | 'ship' | 'flag' | 'laboon' | 'seaking' | 'newscoo' | 'dendenmushi' | 'karoo';
+export const AMBIENT_AR: Record<AmbientId, number> = {"island": 1, "ship": 0.8819, "flag": 1.3043, "laboon": 1.2039, "seaking": 0.6679, "newscoo": 1.4694, "dendenmushi": 1.3575, "karoo": 1.107};
 export function ambientUrl(id: AmbientId): string {
   return `${ART_BASE}amb-${id}.webp`;
 }
