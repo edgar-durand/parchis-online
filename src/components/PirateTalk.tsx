@@ -46,20 +46,64 @@ function soundOn(): boolean {
   return g.REMIX_SOUND_ON !== false && g.REMIX_SFX_MUTED !== true;
 }
 
-type WebAudioEl = { play(): Promise<void>; pause(): void; volume: number; preload: string; onended: (() => void) | null };
-const webCache = new Map<string, WebAudioEl>();
+// Web: Web Audio, unlocked by the player's first tap (a browser plays a clip a timer starts only
+// through an AudioContext that a gesture has resumed — an <audio> element stays silent).
+type Ctx = {
+  state: string;
+  currentTime: number;
+  destination: unknown;
+  resume(): Promise<void>;
+  decodeAudioData(b: ArrayBuffer): Promise<unknown>;
+  createBufferSource(): { buffer: unknown; connect(n: unknown): void; start(t?: number): void; stop(): void; onended: (() => void) | null };
+  createGain(): { gain: { value: number }; connect(n: unknown): void };
+};
+let ctx: Ctx | null = null;
+const buffers = new Map<string, Promise<unknown>>();
+
+function webCtx(): Ctx | null {
+  if (ctx) return ctx;
+  const g = globalThis as unknown as { AudioContext?: new () => Ctx; webkitAudioContext?: new () => Ctx; document?: { addEventListener(n: string, f: () => void, o?: unknown): void } };
+  const C = g.AudioContext ?? g.webkitAudioContext;
+  if (!C) return null;
+  ctx = new C();
+  const unlock = () => { void ctx?.resume().catch(() => undefined); };
+  ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((n) => g.document?.addEventListener(n, unlock, { passive: true }));
+  return ctx;
+}
+
+if (Platform.OS === 'web') webCtx();
+
+function bufferFor(c: Ctx, key: string): Promise<unknown> {
+  let b = buffers.get(key);
+  if (!b) {
+    b = fetch(voiceUrl(key)).then((r) => r.arrayBuffer()).then((a) => c.decodeAudioData(a));
+    b.catch(() => buffers.delete(key));
+    buffers.set(key, b);
+  }
+  return b;
+}
 
 function playClip(key: string, loud: boolean, done: () => void): boolean {
-  const url = voiceUrl(key);
   if (Platform.OS === 'web') {
-    const Ctor = (globalThis as { Audio?: new (src: string) => WebAudioEl }).Audio;
-    if (!Ctor) return false;
-    const a = webCache.get(key) ?? new Ctor(url);
-    webCache.set(key, a);
-    a.volume = loud ? 1 : 0.85;
-    a.onended = done;
-    void a.play().catch(done);
-    current = { stop: () => { a.pause(); done(); } };
+    const c = webCtx();
+    if (!c) return false;
+    if (c.state === 'suspended') void c.resume().catch(() => undefined);
+    let src: ReturnType<Ctx['createBufferSource']> | null = null;
+    let stopped = false;
+    void bufferFor(c, key)
+      .then((buf) => {
+        if (stopped) return;
+        src = c.createBufferSource();
+        src.buffer = buf;
+        const g = c.createGain();
+        g.gain.value = loud ? 1 : 0.85;
+        src.connect(g);
+        g.connect(c.destination);
+        src.onended = done;
+        src.start();
+      })
+      .catch(done);
+    current = { stop: () => { stopped = true; try { src?.stop(); } catch { /* ended */ } done(); } };
     return true;
   }
   if (!modeSet) {
