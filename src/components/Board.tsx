@@ -849,7 +849,9 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         resizeMode="contain"
         style={{ position: 'absolute', width: S * ISLAND, height: S * ISLAND, left: (S - S * ISLAND) / 2, top: (S - S * ISLAND) / 2 }}
       />
-      <Svg width={S} height={S}>
+      {/* positioned like the island under it: a browser paints a positioned element above an
+          unpositioned one, so without this the island covered the whole board on the web */}
+      <Svg width={S} height={S} style={{ position: 'absolute', left: 0, top: 0 }}>
         <DefsLayer />
         <StaticBoard geo={geo} />
 
