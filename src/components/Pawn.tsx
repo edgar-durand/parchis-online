@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Image, Pressable, StyleSheet } from 'react-native';
 import Svg, { Circle, Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
@@ -16,6 +16,21 @@ import { CHARACTERS } from '../types';
 import type { PawnProps } from '../types';
 import { HIT, motion } from '../theme';
 import { hues, shadow } from '../art';
+import { ART, artUrl } from '../art-sprites';
+import type { ArtPose } from '../art-sprites';
+import { COLORS } from '../types';
+
+// Warm the image cache once, so a pose change never shows an empty frame.
+let prefetched = false;
+function prefetchArt(): void {
+  if (prefetched) return;
+  prefetched = true;
+  (['idle', 'walk', 'attack', 'hit', 'cheer'] as ArtPose[]).forEach((pz) =>
+    COLORS.forEach((c) => {
+      void Image.prefetch(artUrl(c, pz)).catch(() => undefined);
+    }),
+  );
+}
 
 const EYE = '#2A1E1A';
 const SKIN = '#F2C29B';
@@ -194,7 +209,7 @@ function between(a: number, b: number): number {
   return a + Math.floor(Math.random() * (b - a));
 }
 
-export type PawnPose = 'idle' | 'run' | 'hit' | 'cheer';
+export type PawnPose = 'idle' | 'walk' | 'run' | 'attack' | 'hit' | 'cheer';
 
 function PawnView({
   color,
@@ -217,6 +232,25 @@ function PawnView({
   const tilt = useSharedValue(0);
   const run = useSharedValue(0);
   const [blink, setBlink] = useState(false);
+  const [artOk, setArtOk] = useState(true);
+  const [stride, setStride] = useState(false);
+  const [joy, setJoy] = useState(false);
+  useEffect(prefetchArt, []);
+  // A walk is two drawn frames (stride / stand) alternating with the hop.
+  useEffect(() => {
+    if (pose !== 'walk' && pose !== 'run') {
+      setStride(false);
+      return;
+    }
+    const h = setInterval(() => setStride((v) => !v), pose === 'run' ? 120 : 170);
+    return () => clearInterval(h);
+  }, [pose]);
+  const frame: ArtPose =
+    pose === 'attack' || pose === 'hit' || pose === 'cheer'
+      ? pose
+      : pose === 'walk' || pose === 'run'
+        ? stride ? 'walk' : 'idle'
+        : joy ? 'cheer' : 'idle';
   const h = hues[color];
   const emblem = CHARACTERS[color].emblem as Emblem;
   const cfg = LEGS[emblem] ?? LEGS.hat;
@@ -365,6 +399,10 @@ function PawnView({
     let timer: ReturnType<typeof setTimeout>;
     const fidget = () => {
       const roll = Math.random();
+      if (excited && roll < 0.22) {
+        setJoy(true);
+        setTimeout(() => alive && setJoy(false), 650);
+      }
       if (roll < 0.4) {
         // a little hop (two when excited)
         idleHop.value = withSequence(
@@ -550,6 +588,24 @@ function PawnView({
             <Ellipse cx={50} cy={126} rx={33} ry={9} fill="#FFFFFF" opacity={0.6} />
             <Ellipse cx={50} cy={126} rx={30} ry={7.5} fill={`url(#pw-base-${color})`} stroke={h.shade} strokeWidth={2} />
           </Svg>
+          {artOk ? (
+            (() => {
+              const a = ART[color][frame];
+              const ih = H * 0.9 * a.k;
+              const iw = ih * a.ar;
+              return (
+                <Image
+                  source={{ uri: artUrl(color, frame) }}
+                  onError={() => setArtOk(false)}
+                  resizeMode="contain"
+                  fadeDuration={0}
+                  accessibilityIgnoresInvertColors
+                  style={{ position: 'absolute', width: iw, height: ih, left: W / 2 - iw / 2, top: H * 0.91 - ih }}
+                />
+              );
+            })()
+          ) : (
+            <>
           <Animated.View
             style={[
               { position: 'absolute', left: 34 * u, top: 54 * u, width: legW, height: legH },
@@ -575,6 +631,8 @@ function PawnView({
             </G>
             <Ellipse cx={42} cy={22} rx={6} ry={2.4} fill="#FFFFFF" opacity={0.28} />
           </Svg>
+            </>
+          )}
         </Animated.View>
       </Pressable>
     </Animated.View>

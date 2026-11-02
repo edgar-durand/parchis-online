@@ -25,7 +25,7 @@ interface Geo {
   tris: Record<Color, Point[]>;
   pt: (c: Color, prog: number, idx: number) => Point;
 }
-type Over = { x: number; y: number; lift: number; face: number; sx: number; sy: number; rot: number };
+type Over = { x: number; y: number; lift: number; face: number; sx: number; sy: number; rot: number; pose?: 'walk' | 'attack' | 'hit' };
 type Anim = { key: string; pts: Point[]; seg: number; start: number; lift: number; arc: boolean; face?: number; lastI?: number; hold?: number; brawl?: boolean; side?: number };
 type Burst = { id: number; x: number; y: number; color: Color; start: number; dust?: boolean; fight?: boolean; goal?: boolean };
 type BurstView = { id: number; x: number; y: number; color: Color; t: number; dust?: boolean; fight?: boolean; goal?: boolean };
@@ -502,7 +502,7 @@ const StaticBoard = React.memo(function StaticBoard({ geo }: { geo: Geo }) {
   );
 });
 
-interface Item { key: string; color: Color; index: number; prog: number; x: number; y: number; lift: number; anim: boolean; face: number; sx: number; sy: number; rot: number }
+interface Item { key: string; color: Color; index: number; prog: number; x: number; y: number; lift: number; anim: boolean; face: number; sx: number; sy: number; rot: number; pose?: 'walk' | 'attack' | 'hit' }
 
 export default function Board({ state, myColor, legal, fixedView, onPiece, size }: BoardProps): JSX.Element {
   const S = Math.max(120, Math.round(size));
@@ -658,12 +658,12 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
       if (a.brawl) {
         if (t < 0) return true;
         if (t >= a.seg) return false;
-        next[a.key] = brawlPose(t, a.seg, a.pts[0], a.side ?? 1, dd);
+        next[a.key] = { ...brawlPose(t, a.seg, a.pts[0], a.side ?? 1, dd), pose: 'attack' };
         return true;
       }
       if (t >= hold + segs * a.seg) return false;
       if (t <= 0) { next[a.key] = { x: a.pts[0].x, y: a.pts[0].y, lift: 0, face: 1, sx: 1, sy: 1, rot: 0 }; return true; }
-      if (t < hold) { next[a.key] = brawlPose(t, hold, a.pts[0], a.side ?? -1, dd); return true; }
+      if (t < hold) { next[a.key] = { ...brawlPose(t, hold, a.pts[0], a.side ?? -1, dd), pose: 'hit' }; return true; }
       t -= hold;
       const i = Math.min(segs - 1, Math.floor(t / a.seg));
       const f = (t - i * a.seg) / a.seg;
@@ -690,6 +690,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
         sx: 1 / sy,
         sy,
         rot,
+        pose: a.arc ? 'hit' : 'walk',
       };
       return true;
     });
@@ -817,7 +818,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
     items.push({
       key, color, index, prog,
       x: o ? o.x : base.x, y: o ? o.y : base.y, lift: o ? o.lift : 0, anim: !!o,
-      face: o ? o.face : 1, sx: o ? o.sx : 1, sy: o ? o.sy : 1, rot: o ? o.rot : 0,
+      face: o ? o.face : 1, sx: o ? o.sx : 1, sy: o ? o.sy : 1, rot: o ? o.rot : 0, pose: o?.pose,
     });
   }));
 
@@ -998,6 +999,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
               onPress={movable ? () => press(it.index) : undefined}
               excited={showTurn && state.turn === it.color && !it.anim}
               still={it.anim}
+              pose={it.pose ?? 'idle'}
             />
           </View>
         ))}

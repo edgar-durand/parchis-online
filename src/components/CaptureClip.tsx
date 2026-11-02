@@ -68,6 +68,8 @@ export default function CaptureClip({
   const [stage, setStage] = useState<'clash' | 'close'>('clash');
   const [shout, setShout] = useState<{ n: number; text: string } | null>(null);
   const [victimPose, setVictimPose] = useState<PawnPose>('idle');
+  const [attackerPose, setAttackerPose] = useState<PawnPose>('walk');
+  const [heroPose, setHeroPose] = useState<PawnPose>('run');
 
   const fade = useSharedValue(0);
   const rays = useSharedValue(0);
@@ -91,11 +93,13 @@ export default function CaptureClip({
     rays.value = withRepeat(withTiming(1, { duration: 2400, easing: Easing.linear }), -1);
     title.value = withSequence(withSpring(1, { damping: 7, stiffness: 260 }), withDelay(700, withTiming(0, { duration: 200 })));
     attX.value = withTiming(-0.2, { duration: CLASH_AT, easing: Easing.out(Easing.back(1.6)) });
+    at(CLASH_AT, () => setAttackerPose('idle'));
     vicX.value = withTiming(0.2, { duration: CLASH_AT, easing: Easing.out(Easing.back(1.6)) });
 
     HITS.forEach((t, i) => {
       at(t - 140, () => {
         // the attacker lunges, the victim recoils
+        setAttackerPose('attack');
         attX.value = withSequence(withTiming(-0.06, { duration: 120, easing: Easing.in(Easing.quad) }), withTiming(-0.18, { duration: 180 }));
         vicX.value = withSequence(withDelay(110, withTiming(0.27, { duration: 90 })), withTiming(0.21, { duration: 160 }));
       });
@@ -133,6 +137,7 @@ export default function CaptureClip({
       banner.value = withDelay(120, withSpring(1, { damping: 8, stiffness: 200 }));
     });
 
+    at(CLIP_MS - 700, () => setHeroPose('cheer'));
     at(CLIP_MS - 260, () => {
       fade.value = withTiming(0, { duration: 240 });
     });
@@ -219,7 +224,7 @@ export default function CaptureClip({
             </Animated.View>
             <View style={[styles.stageRow, { top: S * 0.42 }]}>
               <Animated.View style={[styles.fighter, attStyle]}>
-                <Pawn color={attacker} x={0} y={0} size={fighter} movable={false} dimmed={false} pose="idle" still />
+                <Pawn color={attacker} x={0} y={0} size={fighter} movable={false} dimmed={false} pose={attackerPose} still />
               </Animated.View>
               <Animated.View style={[styles.fighter, vicStyle]}>
                 <Pawn color={victim} x={0} y={0} size={fighter} movable={false} dimmed={false} pose={victimPose} still />
@@ -261,7 +266,7 @@ export default function CaptureClip({
               </Svg>
             </Animated.View>
             <Animated.View style={[styles.hero, { top: S * 0.5 }, closeStyle]}>
-              <Pawn color={attacker} x={0} y={0} size={hero} movable={false} dimmed={false} pose="run" />
+              <Pawn color={attacker} x={0} y={0} size={hero} movable={false} dimmed={false} pose={heroPose} />
             </Animated.View>
             <Animated.View style={[styles.banner, { top: S * 0.08 }, bannerStyle]}>
               <Text style={[styles.bannerTitle, { fontSize: Math.max(20, S * 0.06), fontFamily: fonts.display }]}>
