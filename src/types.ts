@@ -28,7 +28,12 @@ export type Square = { kind: 'nest' } | { kind: 'circuit'; abs: number } | { kin
 export interface Seat { color: Color; playerId: string | null; name: string; isBot: boolean; ready: boolean; connected: boolean; lastSeen: number }
 export type Phase = 'lobby' | 'rolling' | 'moving' | 'over';
 export interface LogEntry { id: number; color: Color; text: string; kind: 'roll' | 'move' | 'capture' | 'goal' | 'exit' | 'skip' | 'penalty' | 'info' }
-export interface EmoteEvent { id: number; color: Color; emote: EmoteId; at: number }
+// key: set by the sender, so the copy a guest shows at once and the host's copy are one emote
+export interface EmoteEvent { id: number; color: Color; emote: EmoteId; at: number; key?: string }
+
+export function emoteKey(e: EmoteEvent): string {
+  return e.key ?? `${e.id}:${e.color}`;
+}
 export type EmoteId = 'gomu' | 'laugh' | 'cry' | 'nakama' | 'king' | 'gg';
 // which die (or both) a move spends: 'a' = first die, 'b' = second die, 'sum' = both added
 export type DieUse = 'a' | 'b' | 'sum';
@@ -65,7 +70,7 @@ export type Action =
   | { type: 'start' }
   | { type: 'roll'; playerId: string; value: number; value2: number }
   | { type: 'move'; playerId: string; pieceIndex: number; use?: DieUse }
-  | { type: 'emote'; playerId: string; emote: EmoteId }
+  | { type: 'emote'; playerId: string; emote: EmoteId; key?: string }
   | { type: 'heartbeat'; playerId: string }
   | { type: 'rematch' };
 
@@ -75,10 +80,20 @@ export interface PlayerInfo { playerId: string; name: string }
 export interface RoomTransport {
   create(host: PlayerInfo): Promise<GameState>;
   join(code: string, player: PlayerInfo): Promise<{ state?: GameState; error?: JoinError }>;
-  send(code: string, action: Action): Promise<void>;
+  // resolves to the action's place in the sender's outbox, when it rides one
+  send(code: string, action: Action): Promise<number | void>;
   publish(code: string, state: GameState): Promise<void>;
-  // isHost: only the host reads the players' outboxes (each guest writes its own, never a shared box)
-  subscribe(code: string, onState: (s: GameState) => void, onActions: (a: Action[]) => void, onStatus: (c: ConnectionStatus) => void, isHost?: () => boolean): () => void;
+  // isHost: only the host reads the players' outboxes (each guest writes its own, never a shared box).
+  // onState also gets, per player, the last outbox place the host has applied.
+  // pollMs: how often to look right now (faster while somebody is waiting on a reply).
+  subscribe(
+    code: string,
+    onState: (s: GameState, applied?: Record<string, number>) => void,
+    onActions: (a: Action[]) => void,
+    onStatus: (c: ConnectionStatus) => void,
+    isHost?: () => boolean,
+    pollMs?: () => number,
+  ): () => void;
   close(code: string): Promise<void>;
 }
 

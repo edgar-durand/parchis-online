@@ -91,8 +91,8 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
     return null;
   }
 
-  async function writeOutbox(code: string, playerId: string, action: Action | null): Promise<void> {
-    await enqueue(async () => {
+  async function writeOutbox(code: string, playerId: string, action: Action | null): Promise<number> {
+    const seq = await enqueue(async () => {
       let entry = mine.get(code);
       if (!entry || entry.playerId !== playerId) {
         // a reload: continue after what the outbox already holds, never reuse a seq
@@ -108,8 +108,10 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
         box.items = [...box.items, { seq: box.seq, action, at }].slice(-OUTBOX_LIMIT);
       }
       await kv.set(outKey(code, playerId), JSON.stringify(box));
+      return box.seq;
     });
     wake(code);
+    return seq;
   }
 
   async function readRecord(code: string): Promise<StateRecord | null> {
@@ -254,7 +256,7 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
       }
     },
 
-    async send(rawCode: string, action: Action): Promise<void> {
+    async send(rawCode: string, action: Action): Promise<number | void> {
       const code = norm(rawCode);
       const pid = 'playerId' in action ? action.playerId : null;
       // A join comes before the player has a seat, so it rides the shared inbox; a bot has no outbox.
@@ -262,7 +264,8 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
         await appendAction(code, action);
         return;
       }
-      await writeOutbox(code, pid, action.type === 'heartbeat' ? null : action);
+      const seq = await writeOutbox(code, pid, action.type === 'heartbeat' ? null : action);
+      return action.type === 'heartbeat' ? undefined : seq;
     },
 
     async publish(rawCode: string, state: GameState): Promise<void> {
@@ -278,7 +281,7 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
       wake(code);
     },
 
-    subscribe(rawCode, onState, onActions, onStatus, isHost): () => void {
+    subscribe(rawCode, onState, onActions, onStatus, isHost, pollNow): () => void {
       const code = norm(rawCode);
       let stopped = false;
       let running = false;
@@ -300,7 +303,8 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
         if (stopped) return;
         if (timer) clearTimeout(timer);
         // After failures, poll a little slower (backoff) instead of hammering a weak connection.
-        const delay = remote ? pollMs + Math.min(failures * 1000, 4000) : pollMs;
+        const base = pollNow ? Math.max(300, pollNow()) : pollMs;
+        const delay = remote ? base + Math.min(failures * 1000, 4000) : Math.min(base, pollMs);
         timer = setTimeout(() => { void tick(); }, delay);
       };
 
@@ -326,7 +330,7 @@ function makeBackend(kv: KV, pollMs: number, remote: boolean): RoomTransport {
             if (!cursors.has(code)) cursors.set(code, Math.min(rec.applied, box.next));
             if (rec.state.version !== lastVersion) {
               lastVersion = rec.state.version;
-              onState(rec.state);
+              onState(rec.state, rec.out);
             }
           }
           const cursor = cursors.get(code);

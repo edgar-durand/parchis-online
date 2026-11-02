@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CHARACTERS, COLORS, GOAL } from '../types';
+import { CHARACTERS, COLORS, GOAL, emoteKey } from '../types';
 import type { BoardClip, Color, DieUse, EmoteId, GameScreenProps, LogEntry, Seat } from '../types';
 import { motion, playerColors, radius, space, type as typeScale } from '../theme';
 import Board from '../components/Board';
@@ -286,7 +286,7 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
   const bubbleTimers = useRef<Partial<Record<Color, ReturnType<typeof setTimeout>>>>({});
   const seenRollId = useRef<number>(-1);
   const seenToastId = useRef<number>(-1);
-  const seenEmoteId = useRef<number>(-1);
+  const seenEmotes = useRef<Set<string> | null>(null);
   const soundOn = useRef<boolean>(true);
   soundOn.current = (settings as unknown as { sound?: boolean }).sound !== false;
   // the board's effects and the characters' voices read the same switch
@@ -346,13 +346,14 @@ export default function GameScreen(props: GameScreenProps): JSX.Element {
 
   // Emote bubbles next to the seat chips.
   useEffect(() => {
-    if (seenEmoteId.current === -1) {
-      seenEmoteId.current = lastId(state.emotes);
+    if (seenEmotes.current === null) {
+      seenEmotes.current = new Set(state.emotes.map(emoteKey));
       return;
     }
-    const fresh = state.emotes.filter((e) => e.id > seenEmoteId.current);
+    const seen = seenEmotes.current;
+    const fresh = state.emotes.filter((e) => !seen.has(emoteKey(e)));
     if (fresh.length === 0) return;
-    seenEmoteId.current = lastId(state.emotes);
+    fresh.forEach((e) => seen.add(emoteKey(e)));
     play('emote');
     setBubbles((prev) => {
       const next = { ...prev };

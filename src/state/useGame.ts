@@ -16,6 +16,7 @@ import {
   LegalMove,
   MatchRecord,
   OFFLINE_BOT_AFTER_MS,
+  POLL_MS,
   Profile,
   RoomTransport,
   Seat,
@@ -32,8 +33,16 @@ const HEARTBEAT_MS = 3000;
 // a phone that switches app for a moment, or a slow network, is not "gone"
 const DISCONNECT_AFTER_MS = 25000;
 const EMOTE_COOLDOWN_MS = 3000;
-const PENDING_TIMEOUT_MS = 5000;
+// a guest's own move shows at once; if the host has not confirmed it by then, the host's board wins
+const PREDICTION_TIMEOUT_MS = 9000;
+// how often to look at the room: fast while someone waits on a reply, slower otherwise
+const POLL_WAITING_MS = 500;
+const POLL_PLAYING_MS = 1200;
+const POLL_HOST_REMOTE_TURN_MS = 700;
 const HISTORY_LIMIT = 20;
+
+// A guest's own action, already shown on its screen, waiting for the host to apply it.
+interface Prediction { action: Action; seq?: number; at: number }
 
 interface SavedSession {
   code: string;
@@ -181,10 +190,11 @@ function reduce(state: GameState, a: Action, now: number): GameState {
       if (state.phase === 'lobby') return state;
       const color = actorColor(state, a.playerId);
       if (!color) return state;
+      if (a.key && state.emotes.some((e) => e.key === a.key)) return state;
       const last = [...state.emotes].reverse().find((e) => e.color === color);
       if (last && now - last.at < EMOTE_COOLDOWN_MS) return state;
       const id = state.emotes.reduce((m, e) => Math.max(m, e.id), 0) + 1;
-      return { ...state, emotes: [...state.emotes, { id, color, emote: a.emote, at: now }].slice(-12) };
+      return { ...state, emotes: [...state.emotes, { id, color, emote: a.emote, at: now, key: a.key }].slice(-12) };
     }
     case 'heartbeat': {
       const seat = state.seats.find((x) => x.playerId === a.playerId);
@@ -211,6 +221,20 @@ function reduce(state: GameState, a: Action, now: number): GameState {
     default:
       return state;
   }
+}
+
+// The guest's screen: the host's board with the guest's own unconfirmed actions played on top.
+// An action that no longer applies (the host already played it, or refused it) is dropped.
+function project(auth: GameState, preds: Prediction[], now: number): { shown: GameState; kept: Prediction[] } {
+  let shown = auth;
+  const kept: Prediction[] = [];
+  for (const p of preds) {
+    const next = reduce(shown, p.action, now);
+    if (next === shown) continue;
+    shown = next;
+    kept.push(p);
+  }
+  return { shown: kept.length ? { ...shown, version: auth.version } : auth, kept };
 }
 
 function randomDie(): number {
@@ -242,10 +266,12 @@ export function useGame(profile: Profile): GameStore {
   const [status, setStatus] = useState<ConnectionStatus>('online');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<JoinError | null>(null);
-  const [pending, setPending] = useState(false);
   const [tick, setTick] = useState(0);
 
+  // stateRef: what this screen shows (and validates taps against); authRef: the host's last board
   const stateRef = useRef<GameState | null>(null);
+  const authRef = useRef<GameState | null>(null);
+  const predsRef = useRef<Prediction[]>([]);
   const transportRef = useRef<RoomTransport | null>(null);
   const codeRef = useRef('');
   const pidRef = useRef('');
@@ -257,7 +283,7 @@ export function useGame(profile: Profile): GameStore {
   const lastSeenRef = useRef<Map<string, number>>(new Map());
   const takeoverRef = useRef<Set<Color>>(new Set());
   const lastEmoteRef = useRef(0);
-  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const predTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hadSeatRef = useRef(false);
   const recordedRef = useRef<Set<string>>(new Set());
   const busyRef = useRef(false);
@@ -270,27 +296,54 @@ export function useGame(profile: Profile): GameStore {
     return fallbackIdRef.current;
   }, []);
 
-  const adopt = useCallback((s: GameState | null) => {
-    const n = s ? normalize(s) : s;
+  const show = useCallback((n: GameState | null) => {
+    if (stateRef.current !== n) changedAtRef.current = Date.now();
     stateRef.current = n;
-    changedAtRef.current = Date.now();
     setState(n);
   }, []);
 
-  const clearPending = useCallback(() => {
-    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
-    pendingTimerRef.current = null;
-    setPending(false);
+  // Replays the guest's unconfirmed actions on the host's board and shows the result.
+  const reproject = useCallback(() => {
+    const auth = authRef.current;
+    if (!auth) { show(auth); return; }
+    const now = Date.now();
+    const fresh = predsRef.current.filter((p) => now - p.at < PREDICTION_TIMEOUT_MS);
+    const { shown, kept } = project(auth, fresh, now);
+    predsRef.current = kept;
+    if (!kept.length && predTimerRef.current) {
+      clearTimeout(predTimerRef.current);
+      predTimerRef.current = null;
+    }
+    show(shown);
+  }, [show]);
+
+  // The host's board. `applied` says which of this guest's actions it already holds.
+  const adopt = useCallback((s: GameState | null, applied?: number) => {
+    const n = s ? normalize(s) : s;
+    authRef.current = n;
+    if (!n) predsRef.current = [];
+    else if (applied !== undefined) predsRef.current = predsRef.current.filter((p) => p.seq === undefined || p.seq > applied);
+    reproject();
+  }, [reproject]);
+
+  const clearPredictions = useCallback(() => {
+    if (predTimerRef.current) clearTimeout(predTimerRef.current);
+    predTimerRef.current = null;
+    predsRef.current = [];
   }, []);
 
-  const markPending = useCallback(() => {
-    setPending(true);
-    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
-    pendingTimerRef.current = setTimeout(() => {
-      pendingTimerRef.current = null;
-      setPending(false);
-    }, PENDING_TIMEOUT_MS);
-  }, []);
+  // Guest: play the action on this screen now, then send it to the host.
+  const predict = useCallback((a: Action, send: (a: Action) => Promise<number | void>) => {
+    const p: Prediction = { action: a, at: Date.now() };
+    predsRef.current = [...predsRef.current, p];
+    reproject();
+    if (predTimerRef.current) clearTimeout(predTimerRef.current);
+    predTimerRef.current = setTimeout(() => {
+      predTimerRef.current = null;
+      reproject();
+    }, PREDICTION_TIMEOUT_MS + 50);
+    send(a).then((seq) => { if (typeof seq === 'number') p.seq = seq; }).catch(() => undefined);
+  }, [reproject]);
 
   const amHost = useCallback((): boolean => {
     const cur = stateRef.current;
@@ -334,15 +387,17 @@ export function useGame(profile: Profile): GameStore {
     commit((s) => list.reduce((acc, a) => reduce(acc, a, now), s));
   }, [amHost, commit]);
 
-  const sendAction = useCallback((a: Action) => {
+  const sendAction = useCallback((a: Action): Promise<number | void> => {
     const t = transportRef.current;
     const code = codeRef.current;
-    if (!t || !code) return;
-    t.send(code, a).catch(() => {
+    if (!t || !code) return Promise.resolve();
+    return t.send(code, a).catch(() => {
       setStatus('reconnecting');
-      clearPending();
+      // the host never got it: show its board again
+      clearPredictions();
+      reproject();
     });
-  }, [clearPending]);
+  }, [clearPredictions, reproject]);
 
   // Route an action by role: host reduces locally, guests send it to the host.
   const dispatch = useCallback((a: Action) => {
@@ -364,13 +419,14 @@ export function useGame(profile: Profile): GameStore {
     takeoverRef.current = new Set();
     lastSeenRef.current = new Map();
     hadSeatRef.current = false;
-    clearPending();
+    clearPredictions();
+    authRef.current = null;
     stateRef.current = null;
     setState(null);
     setPractice(false);
     setStatus('online');
     AsyncStorage.removeItem(SESSION_KEY).catch(() => undefined);
-  }, [clearPending]);
+  }, [clearPredictions]);
 
   const enterRoom = useCallback((
     s: GameState, t: RoomTransport, isPractice: boolean, id: string, restored: boolean,
@@ -390,22 +446,31 @@ export function useGame(profile: Profile): GameStore {
     hadSeatRef.current = s.seats.some((x) => x.playerId === id);
     setError(null);
     setStatus(restored && !isPractice ? 'reconnecting' : 'online');
+    clearPredictions();
     adopt(s);
     if (isPractice) return;
     unsubRef.current = t.subscribe(
       s.roomCode,
-      (incoming) => {
+      (incoming, applied) => {
         if (incoming.roomCode !== codeRef.current) return;
-        const cur = stateRef.current;
+        const cur = authRef.current;
         if (cur && incoming.version <= cur.version) return;
-        adopt(incoming);
-        clearPending();
+        adopt(incoming, applied?.[pidRef.current]);
       },
       (actions) => handleActions(actions),
       (st) => setStatus(st),
       amHost,
+      () => {
+        const cur = stateRef.current;
+        if (!cur || cur.phase === 'lobby' || cur.phase === 'over') return POLL_MS;
+        if (!amHost()) return predsRef.current.length ? POLL_WAITING_MS : POLL_PLAYING_MS;
+        // host: a remote player is on the move, pick up their taps quickly
+        const seat = cur.seats.find((x) => x.color === cur.turn);
+        const remoteTurn = !!seat && isHumanSeat(seat) && seat.playerId !== pidRef.current && seat.connected;
+        return remoteTurn ? POLL_HOST_REMOTE_TURN_MS : POLL_MS;
+      },
     );
-  }, [adopt, clearPending, handleActions, amHost]);
+  }, [adopt, clearPredictions, handleActions, amHost]);
 
   // Make sure the host is seated and ready.
   const ensureHost = useCallback((s: GameState, id: string, name: string): GameState => {
@@ -547,25 +612,25 @@ export function useGame(profile: Profile): GameStore {
     if (amHost()) {
       handleActions([a]);
     } else if (!practiceRef.current) {
-      markPending();
-      sendAction(a);
+      predict(a, sendAction);
     }
-  }, [amHost, handleActions, markPending, sendAction]);
+  }, [amHost, handleActions, predict, sendAction]);
 
   const move = useCallback((pieceIndex: number, use?: DieUse) => {
     const cur = stateRef.current;
     if (!cur) return;
     const mine = cur.seats.find((x) => x.playerId === pidRef.current);
     if (!mine) return;
-    if (!legalFor(cur, mine.color).some((m) => m.pieceIndex === pieceIndex && (use === undefined || m.use === use))) return;
-    const a: Action = { type: 'move', playerId: pidRef.current, pieceIndex, use };
+    const chosen = legalFor(cur, mine.color).find((m) => m.pieceIndex === pieceIndex && (use === undefined || m.use === use));
+    if (!chosen) return;
+    // always name the die: the host then plays exactly what this screen showed
+    const a: Action = { type: 'move', playerId: pidRef.current, pieceIndex, use: chosen.use };
     if (amHost()) {
       handleActions([a]);
     } else if (!practiceRef.current) {
-      markPending();
-      sendAction(a);
+      predict(a, sendAction);
     }
-  }, [amHost, handleActions, markPending, sendAction]);
+  }, [amHost, handleActions, predict, sendAction]);
 
   const emote = useCallback((e: EmoteId) => {
     const now = Date.now();
@@ -573,8 +638,10 @@ export function useGame(profile: Profile): GameStore {
     const cur = stateRef.current;
     if (!cur || cur.phase === 'lobby') return;
     lastEmoteRef.current = now;
-    dispatch({ type: 'emote', playerId: pidRef.current, emote: e });
-  }, [dispatch]);
+    const a: Action = { type: 'emote', playerId: pidRef.current, emote: e, key: `${pidRef.current}:${now}` };
+    if (amHost()) handleActions([a]);
+    else if (!practiceRef.current) predict(a, sendAction);
+  }, [amHost, handleActions, predict, sendAction]);
 
   const rematch = useCallback(() => {
     const cur = stateRef.current;
@@ -661,7 +728,7 @@ export function useGame(profile: Profile): GameStore {
     if (unsubRef.current) {
       try { unsubRef.current(); } catch { /* ignore */ }
     }
-    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    if (predTimerRef.current) clearTimeout(predTimerRef.current);
   }, []);
 
   const myColor: Color | null = useMemo(() => {
@@ -823,7 +890,7 @@ export function useGame(profile: Profile): GameStore {
   const legal = useMemo(() => legalFor(state, myColor), [state, myColor]);
 
   const canRoll = !!state && !!myColor && state.phase === 'rolling' && state.turn === myColor
-    && !pending && status !== 'offline';
+    && status !== 'offline';
 
   return {
     state,

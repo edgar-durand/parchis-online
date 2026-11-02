@@ -6,7 +6,7 @@ import { ART_BASE, ambientUrl } from '../art-sprites';
 export const ISLAND = 1.3;
 import Svg, { Circle, Defs, Ellipse, G, Line, LinearGradient, Path, Polygon, RadialGradient, Rect, Stop } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import { BoardClip, BoardProps, COLORS, Color, GOAL, Point, SAFE_SQUARES, START_SQUARE } from '../types';
+import { BoardClip, BoardProps, COLORS, Color, GOAL, Point, SAFE_SQUARES, START_SQUARE, emoteKey } from '../types';
 import { gold, hues, loops, parchment, wood } from '../art';
 import { CIRCUIT_COORDS, homeCoords, laneCoords, pointFor } from '../engine/board';
 import Pawn from './Pawn';
@@ -532,14 +532,16 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
   }, []);
 
   // A player's emote is said by their character on the board.
-  const seenEmote = useRef(-1);
+  const seenEmotes = useRef<Set<string> | null>(null);
   useEffect(() => {
-    const top = state.emotes.reduce((m, e) => (e.id > m ? e.id : m), 0);
-    if (seenEmote.current === -1) { seenEmote.current = top; return; }
+    if (seenEmotes.current === null) { seenEmotes.current = new Set(state.emotes.map(emoteKey)); return; }
+    const seen = seenEmotes.current;
     state.emotes
-      .filter((e) => e.id > seenEmote.current)
-      .forEach((e) => say(voiceOf(e.color), e.color, emoteLine(e.emote, e.color), true));
-    seenEmote.current = top;
+      .filter((e) => !seen.has(emoteKey(e)))
+      .forEach((e) => {
+        seen.add(emoteKey(e));
+        say(voiceOf(e.color), e.color, emoteLine(e.emote, e.color), true);
+      });
   }, [state.emotes, say, voiceOf]);
 
   // Sometimes a character cheers when its turn comes round.
