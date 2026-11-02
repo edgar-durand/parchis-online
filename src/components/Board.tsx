@@ -974,7 +974,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size,
         {placed.map(({ it, gx, gy }) => {
           const t = talks[it.key];
           if (!t) return null;
-          return <TalkBubble key={`talk-${it.key}`} talk={t} x={gx} y={gy - it.lift - pawnSize * 1.55} board={S} />;
+          return <TalkBubble key={`talk-${it.key}`} talk={t} x={gx} y={gy - it.lift - pawnSize * 2.05} board={S} />;
         })}
       </View>
       {clip ? (
