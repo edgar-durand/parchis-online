@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Image, View } from 'react-native';
+import { ART_BASE } from '../art-sprites';
 import Svg, {
   Defs,
   LinearGradient,
@@ -340,7 +342,7 @@ function Bust({ color, id }: { color: Color; id: string }) {
 }
 
 // ---------------------------------------------------------------------------
-export default function CharacterEmblem({ color, size, variant }: EmblemProps): JSX.Element {
+function VectorEmblem({ color, size, variant }: EmblemProps): JSX.Element {
   const h = hues[color];
   const emblem = CHARACTERS[color].emblem;
   const id = `ce-${color}-${variant}`;
@@ -449,5 +451,36 @@ export default function CharacterEmblem({ color, size, variant }: EmblemProps): 
       </G>
       <Rect x={1.25} y={1.25} width={97.5} height={97.5} rx={15} fill="none" stroke={gold.shade} strokeWidth={2.5} />
     </Svg>
+  );
+}
+
+/** The illustrated portrait in a round frame of the player's colour; the vector emblem if it can't load. */
+export default function CharacterEmblem(props: EmblemProps): JSX.Element {
+  const { color, size } = props;
+  const [ok, setOk] = useState(true);
+  if (!ok) return <VectorEmblem {...props} />;
+  const h = hues[color];
+  const ring = Math.max(2, Math.round(size * 0.06));
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={CHARACTERS[color].name}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: h.base,
+        borderWidth: ring,
+        borderColor: gold.base,
+        overflow: 'hidden',
+      }}
+    >
+      <Image
+        source={{ uri: `${ART_BASE}${color}-portrait.webp` }}
+        onError={() => setOk(false)}
+        fadeDuration={0}
+        style={{ width: size - ring * 2, height: size - ring * 2 }}
+      />
+    </View>
   );
 }
