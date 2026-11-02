@@ -196,7 +196,7 @@ function between(a: number, b: number): number {
 
 export type PawnPose = 'idle' | 'run' | 'hit' | 'cheer';
 
-export default function Pawn({
+function PawnView({
   color,
   x,
   y,
@@ -475,7 +475,7 @@ export default function Pawn({
   const halo = size * 1.9;
   const dustSize = size * 0.9;
   const ring = size * 3;
-  const extra = Math.max(0, (HIT - W) / 2);
+  const extra = Math.max(8, (HIT + 8 - W) / 2);
   const label = `Ficha de ${CHARACTERS[color].name}${movable ? ', se puede mover' : ''}`;
   const legW = 16 * u;
   const legH = 68 * u;
@@ -580,6 +580,30 @@ export default function Pawn({
     </Animated.View>
   );
 }
+
+// The board re-renders every frame while a piece moves: a pawn redraws only when what it shows
+// changes. `onPress` is a fresh closure each render, so it is read from a ref instead.
+const Pawn = React.memo(
+  function PawnMemo(props: React.ComponentProps<typeof PawnView>) {
+    const press = useRef(props.onPress);
+    press.current = props.onPress;
+    const stable = useRef(() => press.current?.()).current;
+    return <PawnView {...props} onPress={props.onPress ? stable : undefined} />;
+  },
+  (a, b) =>
+    a.color === b.color &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.size === b.size &&
+    a.movable === b.movable &&
+    a.dimmed === b.dimmed &&
+    a.stacked === b.stacked &&
+    a.pose === b.pose &&
+    a.excited === b.excited &&
+    a.still === b.still &&
+    !!a.onPress === !!b.onPress,
+);
+export default Pawn;
 
 const styles = StyleSheet.create({
   container: { position: 'absolute', left: 0, top: 0 },

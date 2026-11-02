@@ -845,6 +845,7 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
   const showTurn = state.phase === 'rolling' || state.phase === 'moving';
   const tn = geo.nests[state.turn];
   const pawnSize = geo.d * 1.2;
+  const pawnBox = pawnSize * 2;
   const hasLegal = myTurn && legal.length > 0;
   const fightFx = fx.find((b) => b.fight);
   const shk = fightFx
@@ -896,22 +897,13 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
           <Circle cx={lastItem.x} cy={lastItem.y} r={geo.d * 0.62} fill="none" stroke={gold.tint} strokeOpacity={0.75} strokeWidth={2} />
         ) : null}
 
-        {placed.map(({ it, gx, gy, movable }) => {
+        {placed.map(({ it, gx, gy }) => {
           return (
             <G key={it.key}>
               {it.lift > 0.5 ? (
                 <Ellipse cx={gx} cy={gy + geo.d * 0.25} rx={geo.d * 0.4 * (1 - Math.min(0.5, it.lift / (geo.size * 0.4)))} ry={geo.d * 0.14} fill="rgba(5,12,22,0.4)" />
               ) : null}
-              {movable ? (
-                <Circle
-                  cx={gx}
-                  cy={gy - it.lift - geo.d * 0.2}
-                  r={geo.d * 0.8}
-                  fill="#000"
-                  fillOpacity={0.001}
-                  onPress={() => press(it.index)}
-                />
-              ) : null}
+
             </G>
           );
         })}
@@ -971,16 +963,19 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
       </Svg>
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         {placed.map(({ it, gx, gy, movable, dimmed }) => (
+          // Sized to the pawn's own box (never 0×0): iOS and Android only deliver a touch inside
+          // the parent's bounds, so a pawn in a zero-size wrapper could not be tapped on a phone.
           <View
             key={it.key}
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: gx,
-              top: gy - it.lift,
-              width: 0,
-              height: 0,
+              left: gx - pawnBox / 2,
+              top: gy - it.lift - pawnBox * 0.62,
+              width: pawnBox,
+              height: pawnBox,
               overflow: 'visible',
+              transformOrigin: `${pawnBox / 2}px ${pawnBox * 0.62}px`,
               transform: [
                 { rotate: `${it.rot}deg` },
                 { scaleX: it.face * it.sx },
@@ -990,8 +985,8 @@ export default function Board({ state, myColor, legal, fixedView, onPiece, size 
           >
             <Pawn
               color={it.color}
-              x={0}
-              y={0}
+              x={pawnBox / 2}
+              y={pawnBox * 0.62}
               size={pawnSize}
               movable={movable}
               dimmed={dimmed}

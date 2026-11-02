@@ -11,9 +11,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { Color, EmoteId } from '../types';
-import { File, Paths } from 'expo-file-system';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { VOICE_CLIPS, VOICE_TEXT } from '../voices';
+import { VOICE_TEXT, voiceUrl } from '../voices';
 import { hues } from '../art';
 
 export type TalkKind = 'chatter' | 'exit' | 'goal' | 'brag' | 'ouch' | 'turn';
@@ -40,7 +39,6 @@ export function emoteLine(emote: EmoteId, color: Color): Line {
 let speaking = false;
 let lastSpoke = 0;
 let current: { stop(): void } | null = null;
-const files = new Map<string, string>();
 let modeSet = false;
 
 function soundOn(): boolean {
@@ -48,31 +46,16 @@ function soundOn(): boolean {
   return g.REMIX_SOUND_ON !== false && g.REMIX_SFX_MUTED !== true;
 }
 
-const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function decode(b64: string): Uint8Array {
-  const clean = b64.replace(/=+$/, '');
-  const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
-  let o = 0;
-  for (let i = 0; i < clean.length; i += 4) {
-    const n =
-      (B64.indexOf(clean[i]) << 18) |
-      (B64.indexOf(clean[i + 1]) << 12) |
-      ((B64.indexOf(clean[i + 2] ?? 'A') & 63) << 6) |
-      (B64.indexOf(clean[i + 3] ?? 'A') & 63);
-    out[o++] = (n >> 16) & 255;
-    if (i + 2 < clean.length) out[o++] = (n >> 8) & 255;
-    if (i + 3 < clean.length) out[o++] = n & 255;
-  }
-  return out.subarray(0, o);
-}
+type WebAudioEl = { play(): Promise<void>; pause(): void; volume: number; preload: string; onended: (() => void) | null };
+const webCache = new Map<string, WebAudioEl>();
 
 function playClip(key: string, loud: boolean, done: () => void): boolean {
-  const data = VOICE_CLIPS[key];
-  if (!data) return false;
+  const url = voiceUrl(key);
   if (Platform.OS === 'web') {
-    const Ctor = (globalThis as { Audio?: new (src: string) => { play(): Promise<void>; pause(): void; volume: number; onended: (() => void) | null } }).Audio;
+    const Ctor = (globalThis as { Audio?: new (src: string) => WebAudioEl }).Audio;
     if (!Ctor) return false;
-    const a = new Ctor(`data:audio/mp4;base64,${data}`);
+    const a = webCache.get(key) ?? new Ctor(url);
+    webCache.set(key, a);
     a.volume = loud ? 1 : 0.85;
     a.onended = done;
     void a.play().catch(done);
@@ -83,21 +66,14 @@ function playClip(key: string, loud: boolean, done: () => void): boolean {
     modeSet = true;
     void Promise.resolve(setAudioModeAsync({ playsInSilentMode: true })).catch(() => undefined);
   }
-  let uri = files.get(key);
-  if (!uri) {
-    const f = new File(Paths.cache, `voice-${key.replace(':', '-')}.m4a`);
-    f.write(decode(data));
-    uri = f.uri;
-    files.set(key, uri);
-  }
-  const player = createAudioPlayer({ uri });
+  const player = createAudioPlayer({ uri: url });
   player.volume = loud ? 1 : 0.85;
   player.play();
   const release = () => {
     try { player.remove(); } catch { /* released */ }
     done();
   };
-  const t = setTimeout(release, 5000);
+  const t = setTimeout(release, 6000);
   current = { stop: () => { clearTimeout(t); release(); } };
   return true;
 }
