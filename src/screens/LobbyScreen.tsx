@@ -3,7 +3,7 @@ import { Platform, ScrollView, Text, View, StyleSheet, useWindowDimensions } fro
 import type { Color, LobbyScreenProps, Seat } from '../types';
 import { CHARACTERS } from '../types';
 import { colors, playerColors, radius, space } from '../theme';
-import { Button, Card, Chip, ConnectionBanner, IconButton, useTheme } from '../components/ui';
+import { Button, Card, ConnectionBanner, IconButton, useTheme } from '../components/ui';
 import PlayerCard from '../components/PlayerCard';
 import ShareSheet from '../components/ShareSheet';
 import SeaBackdrop from '../components/SeaBackdrop';
@@ -46,12 +46,6 @@ export default function LobbyScreen(props: LobbyScreenProps): JSX.Element {
       ? `Esperando a ${summary.waiting} ${summary.waiting === 1 ? 'jugador' : 'jugadores'} para empezar.`
       : 'Todos listos. ¡A zarpar!';
 
-  const seatStatus = (seat: Seat): { label: string; color: string } => {
-    if (seat.isBot) return { label: 'Bot', color: p.inkMuted };
-    if (!seat.connected) return { label: 'Desconectado', color: p.warning };
-    if (seat.ready || isHostSeat(seat)) return { label: 'Listo', color: p.success };
-    return { label: 'Esperando', color: p.inkMuted };
-  };
 
   const requestKick = (seat: Seat) => {
     if (seat.isBot) onKick(seat.color);
@@ -112,7 +106,6 @@ export default function LobbyScreen(props: LobbyScreenProps): JSX.Element {
                   </View>
                 );
               }
-              const st = seatStatus(seat);
               const canKick = isHost && seat.color !== myColor;
               return (
                 <View key={seat.color} style={styles.seatWrap}>
@@ -124,11 +117,6 @@ export default function LobbyScreen(props: LobbyScreenProps): JSX.Element {
                     piecesHome={0}
                     onKick={canKick ? () => requestKick(seat) : undefined}
                   />
-                  <View style={styles.chips}>
-                    <Chip label={st.label} color={st.color} />
-                    {isHostSeat(seat) ? <Chip label="Anfitrión" color={p.accent} selected /> : null}
-                    {seat.color === myColor ? <Chip label="Tú" /> : null}
-                  </View>
                 </View>
               );
             })}
@@ -218,7 +206,6 @@ const styles = StyleSheet.create({
   rightDesktop: { flex: 1, gap: space[4], minWidth: 0 },
   seats: { gap: space[3] },
   seatWrap: { gap: space[2] },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], paddingHorizontal: space[1] },
   emptySeat: { flexDirection: 'row', alignItems: 'center', gap: space[3], flexWrap: 'wrap' },
   emptyText: { flex: 1, minWidth: 96 },
   dot: { width: 24, height: 24, borderRadius: radius.pawn, opacity: 0.55 },
